@@ -5,6 +5,22 @@ phone number, runs a Hindi/English/Hinglish sales conversation pitching the
 Rupeezy Authorized Person (AP) program, and writes a per-call JSON
 transcript log.
 
+## 60-second explainer
+
+https://github.com/rajagurunath/rupeezy-voice-agents/raw/main/deliverables/rupeezy_voice_agent_explainer.mp4
+
+<video src="deliverables/rupeezy_voice_agent_explainer.mp4" controls width="100%"></video>
+
+> If the inline player doesn't load, [download the MP4](deliverables/rupeezy_voice_agent_explainer.mp4) (~7 MB).
+
+## Hackathon deck
+
+- 📊 [Slides (PPTX)](deliverables/rupeezy_voice_agent_deck.pptx) — open in PowerPoint, Keynote, or Google Slides
+- 📄 [Slides (PDF)](deliverables/rupeezy_voice_agent_deck.pdf) — preview in any browser
+- 📁 [All deliverables (deck + video + landing page)](deliverables/README.md)
+
+---
+
 This is the MVP plumbing for hackathon Theme 7. It proves:
 
 - LiveKit Agents 1.x worker with `AgentSession` (STT → LLM → TTS pipeline)
