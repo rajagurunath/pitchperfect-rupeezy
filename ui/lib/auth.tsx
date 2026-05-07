@@ -96,9 +96,15 @@ export function useAuth() {
 }
 
 // ----- AuthGuard: redirects to /login when no session ----------------------
-// `/` (landing) and `/login` are public — everything else requires a token.
+// `/`, `/login`, `/pricing`, and `/contact` are always public.
+//
+// In DEMO_MODE (NEXT_PUBLIC_DEMO_MODE=1) the backend isn't deployed, so all
+// authed routes (/operations, /leads, /calls, /analytics, /profile) bounce
+// back to the landing page instead of hanging on a missing API.
 
-const PUBLIC_PATHS = new Set(["/", "/login"]);
+const PUBLIC_PATHS = new Set(["/", "/login", "/pricing", "/contact"]);
+
+export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "1";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -109,10 +115,16 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (!ready) return;
     if (isPublic) return;
+    if (DEMO_MODE) {
+      // No backend in demo mode — push every authed route back to the landing.
+      router.replace("/");
+      return;
+    }
     if (!isAuthed) router.replace("/login");
   }, [ready, isAuthed, isPublic, router]);
 
   if (!ready) return null;
   if (!isAuthed && !isPublic) return null;
+  if (DEMO_MODE && !isPublic) return null;
   return <>{children}</>;
 }

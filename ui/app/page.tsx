@@ -126,7 +126,7 @@ function LandingNav({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }
           <a href="#how"      className="hover:text-ink-text transition">Product</a>
           <a href="#features" className="hover:text-ink-text transition">Why us</a>
           <a href="#use-cases" className="hover:text-ink-text transition">Use cases</a>
-          <a href="#roadmap"  className="hover:text-ink-text transition">Roadmap</a>
+          <Link href="/pricing" className="hover:text-ink-text transition">Pricing</Link>
         </div>
 
         <div className="flex items-center gap-2">
@@ -135,13 +135,13 @@ function LandingNav({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }
               Sign in
             </Link>
           )}
-          <a
-            href="#book"
+          <Link
+            href={isAuthed ? "/operations" : "/contact"}
             className="group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-4 py-2 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_8px_24px_-8px_rgba(94,234,212,0.6)]"
           >
             {isAuthed ? ctaLabel : "Book a demo"}
             <ArrowRight size={14} className="group-hover:translate-x-0.5 transition" />
-          </a>
+          </Link>
         </div>
       </div>
     </nav>
@@ -197,18 +197,18 @@ function Hero({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
           </p>
 
           <div className="mt-10 flex flex-wrap gap-3 items-center">
-            <a
-              href="#book"
+            <Link
+              href="/contact"
               className="group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-6 py-3 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_12px_32px_-12px_rgba(94,234,212,0.7)]"
             >
               Book a demo
               <ArrowRight size={16} className="group-hover:translate-x-0.5 transition" />
-            </a>
+            </Link>
             <Link
-              href={ctaHref}
+              href="/pricing"
               className="inline-flex items-center gap-2 rounded-full border border-ink-line bg-ink-card/50 backdrop-blur px-6 py-3 text-sm font-semibold text-ink-text hover:border-accent/40 transition"
             >
-              {ctaLabel}
+              See pricing
             </Link>
           </div>
 
@@ -796,18 +796,18 @@ function CtaBlock({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) 
           agent live — in your script, your voice, and your language mix.
         </p>
         <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
-          <a
-            href="mailto:hello@rupeezy.com?subject=Rupeezy%20AP%20Agent%20demo"
+          <Link
+            href="/contact"
             className="group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-7 py-3.5 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_12px_32px_-12px_rgba(94,234,212,0.7)]"
           >
             Book a demo
             <ArrowRight size={16} className="group-hover:translate-x-0.5 transition" />
-          </a>
+          </Link>
           <Link
-            href={ctaHref}
+            href="/pricing"
             className="inline-flex items-center gap-2 rounded-full border border-ink-line bg-ink-card/50 backdrop-blur px-7 py-3.5 text-sm font-semibold text-ink-text hover:border-accent/40 transition"
           >
-            {ctaLabel}
+            See pricing
           </Link>
         </div>
         <div className="mt-8 text-xs text-ink-mute">
@@ -849,27 +849,27 @@ function Footer() {
             <li><a href="#how"        className="text-ink-text hover:text-accent transition">How it works</a></li>
             <li><a href="#features"   className="text-ink-text hover:text-accent transition">Why us</a></li>
             <li><a href="#use-cases"  className="text-ink-text hover:text-accent transition">Use cases</a></li>
-            <li><a href="#roadmap"    className="text-ink-text hover:text-accent transition">Roadmap</a></li>
+            <li><Link href="/pricing" className="text-ink-text hover:text-accent transition">Pricing</Link></li>
           </ul>
         </div>
 
         <div className="md:col-span-2">
           <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-4">COMPANY</div>
           <ul className="space-y-2 text-sm">
-            <li><a href="mailto:hello@rupeezy.com" className="text-ink-text hover:text-accent transition">Contact sales</a></li>
+            <li><Link href="/contact" className="text-ink-text hover:text-accent transition">Contact sales</Link></li>
             <li><Link href="/login" className="text-ink-text hover:text-accent transition">Sign in</Link></li>
           </ul>
         </div>
 
         <div className="md:col-span-3">
           <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-4">GET IN TOUCH</div>
-          <a
-            href="mailto:hello@rupeezy.com?subject=Rupeezy%20AP%20Agent%20demo"
+          <Link
+            href="/contact"
             className="inline-flex items-center gap-2 rounded-full bg-accent/10 ring-1 ring-accent/40 text-accent px-4 py-2 text-sm font-semibold hover:bg-accent/15 transition"
           >
             Book a demo
             <ArrowRight size={14} />
-          </a>
+          </Link>
         </div>
       </div>
 
