@@ -24,3 +24,6 @@ node_modules/
 # Deliverables build artefacts
 deliverables/remotion-explainer/out/
 deliverables/remotion-explainer/build/
+
+# Local-only Loom / video transcripts — reference for recording, not for the repo
+transcripts.md

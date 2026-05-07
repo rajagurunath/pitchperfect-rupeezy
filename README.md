@@ -21,7 +21,6 @@ https://github.com/rajagurunath/rupeezy-voice-agents/raw/main/deliverables/rupee
 - 📊 [Slides (PPTX)](deliverables/rupeezy_voice_agent_deck.pptx) — open in PowerPoint, Keynote, or Google Slides
 - 📄 [Slides (PDF)](deliverables/rupeezy_voice_agent_deck.pdf) — preview in any browser
 - 📁 [All deliverables](deliverables/README.md) — deck, video, landing page, deploy notes
-- 🎙 [Loom recording script](transcripts.md) — 5-minute demo with phone call
 
 ---
 
