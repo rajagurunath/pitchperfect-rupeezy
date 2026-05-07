@@ -5,15 +5,18 @@ import { useRouter, usePathname } from "next/navigation";
 import { useState } from "react";
 import { clearSession, useAuth } from "@/lib/auth";
 
-export function Header() {
-  const router = useRouter();
+export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
   const path = usePathname();
-  const { profile, isAuthed } = useAuth();
+  const { isAuthed } = useAuth();
   const onLogin = path === "/login";
+  const onLanding = path === "/";
+
+  // The landing renders its own header; this one is for app/internal routes.
+  if (variant === "landing" || onLanding) return null;
 
   return (
     <header className="mb-10 flex items-center justify-between">
-      <Link href={isAuthed ? "/" : "/login"} className="flex items-center gap-3 group">
+      <Link href={isAuthed ? "/operations" : "/"} className="flex items-center gap-3 group">
         <div className="h-8 w-8 rounded-lg bg-accent/20 ring-1 ring-accent/40 flex items-center justify-center">
           <span className="text-accent font-bold text-sm">R</span>
         </div>
@@ -26,7 +29,7 @@ export function Header() {
       {isAuthed && !onLogin && (
         <div className="flex items-center gap-1">
           <nav className="flex gap-1 text-sm mr-2">
-            <NavLink href="/">Operations</NavLink>
+            <NavLink href="/operations">Operations</NavLink>
             <NavLink href="/leads">Leads</NavLink>
             <NavLink href="/calls">Calls</NavLink>
             <NavLink href="/analytics">Analytics</NavLink>
@@ -34,13 +37,22 @@ export function Header() {
           <ProfileMenu />
         </div>
       )}
+
+      {!isAuthed && !onLogin && (
+        <Link
+          href="/login"
+          className="text-sm rounded-md bg-accent text-ink px-3 py-1.5 font-medium hover:opacity-90"
+        >
+          Sign in
+        </Link>
+      )}
     </header>
   );
 }
 
 function NavLink({ href, children }: { href: string; children: React.ReactNode }) {
   const path = usePathname();
-  const active = path === href || (href !== "/" && path?.startsWith(href));
+  const active = path === href || path?.startsWith(href + "/");
   return (
     <Link
       href={href}

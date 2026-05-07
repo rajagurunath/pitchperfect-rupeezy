@@ -25,9 +25,19 @@ import jwt
 from fastapi import Depends, HTTPException, Request
 
 
+def _required_env(key: str) -> str:
+    val = os.getenv(key)
+    if not val:
+        raise RuntimeError(
+            f"{key} is not set. Define it in .env (see .env.example) "
+            "before starting the API."
+        )
+    return val
+
+
 def _admin_profile() -> dict[str, str]:
     return {
-        "username": os.getenv("ADMIN_USERNAME", "admin"),
+        "username": _required_env("ADMIN_USERNAME"),
         "display_name": os.getenv("ADMIN_DISPLAY_NAME", "Admin"),
         "email": os.getenv("ADMIN_EMAIL", "admin@local"),
         "role": os.getenv("ADMIN_ROLE", "Admin"),
@@ -35,12 +45,12 @@ def _admin_profile() -> dict[str, str]:
 
 
 def _secret() -> str:
-    return os.getenv("ADMIN_JWT_SECRET", "change-me-rupeezy-hackathon-secret")
+    return _required_env("ADMIN_JWT_SECRET")
 
 
 def verify_credentials(username: str, password: str) -> dict[str, str] | None:
-    expected_user = os.getenv("ADMIN_USERNAME", "admin")
-    expected_pass = os.getenv("ADMIN_PASSWORD", "rupeezy123")
+    expected_user = _required_env("ADMIN_USERNAME")
+    expected_pass = _required_env("ADMIN_PASSWORD")
     if username == expected_user and password == expected_pass:
         return _admin_profile()
     return None

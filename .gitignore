@@ -14,6 +14,13 @@ wheels/
 logs/
 data/
 
-# UI
-ui/node_modules/
-ui/.next/
+# OS
+.DS_Store
+
+# Node / Next
+node_modules/
+.next/
+
+# Deliverables build artefacts
+deliverables/remotion-explainer/out/
+deliverables/remotion-explainer/build/

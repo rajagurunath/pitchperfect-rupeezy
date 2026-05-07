@@ -21,10 +21,47 @@ const config: Config = {
       },
       fontFamily: {
         sans: [
+          "var(--font-dm-sans)",
           "ui-sans-serif", "system-ui", "-apple-system", "BlinkMacSystemFont",
-          "Inter", "Segoe UI", "Roboto", "sans-serif",
+          "Segoe UI", "Roboto", "sans-serif",
         ],
-        mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+        serif: [
+          "var(--font-fraunces)",
+          "ui-serif", "Georgia", "serif",
+        ],
+        mono: [
+          "var(--font-mono)",
+          "ui-monospace", "SFMono-Regular", "Menlo", "monospace",
+        ],
+      },
+      keyframes: {
+        "fade-up": {
+          "0%": { opacity: "0", transform: "translateY(14px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "wave-bar": {
+          "0%, 100%": { transform: "scaleY(0.25)" },
+          "50%":      { transform: "scaleY(1)" },
+        },
+        "shimmer": {
+          "0%":   { backgroundPosition: "-200% 0" },
+          "100%": { backgroundPosition: "200% 0" },
+        },
+        "rotate-slow": {
+          "0%":   { transform: "rotate(0deg)" },
+          "100%": { transform: "rotate(360deg)" },
+        },
+        "ping-soft": {
+          "0%":   { transform: "scale(1)",   opacity: "0.55" },
+          "75%, 100%": { transform: "scale(2.4)", opacity: "0" },
+        },
+      },
+      animation: {
+        "fade-up":     "fade-up 700ms cubic-bezier(.2,.9,.3,1) both",
+        "wave":        "wave-bar 1100ms ease-in-out infinite",
+        "shimmer":     "shimmer 2.4s linear infinite",
+        "rotate-slow": "rotate-slow 22s linear infinite",
+        "ping-soft":   "ping-soft 1.6s cubic-bezier(0,0,0.2,1) infinite",
       },
       boxShadow: {
         card: "0 1px 0 rgba(255,255,255,0.04) inset, 0 8px 24px rgba(0,0,0,0.3)",

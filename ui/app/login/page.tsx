@@ -20,7 +20,7 @@ export default function LoginPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (ready && isAuthed) router.replace("/");
+    if (ready && isAuthed) router.replace("/operations");
   }, [ready, isAuthed, router]);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -29,7 +29,7 @@ export default function LoginPage() {
     try {
       const { token, profile } = await loginRequest(username.trim(), password);
       setSession(token, profile);
-      router.replace("/");
+      router.replace("/operations");
     } catch (e: any) {
       setErr(e?.message ?? "login failed");
     } finally {
@@ -75,15 +75,19 @@ export default function LoginPage() {
             <Button type="submit" disabled={busy} className="w-full">
               {busy ? "Signing in…" : "Sign in"}
             </Button>
-            <div className="rounded-md bg-ink border border-ink-line p-3 text-[11px] text-ink-mute leading-relaxed">
-              <div className="text-ink-text font-medium mb-1">Demo credentials</div>
-              <div>Username: <span className="font-mono text-ink-text">{DEFAULT_USERNAME}</span></div>
-              <div>Password: <span className="font-mono text-ink-text">{DEFAULT_PASSWORD}</span></div>
-              <div className="mt-1 text-ink-mute/80">
-                These are defined in <span className="font-mono">.env</span> as
-                {" "}<span className="font-mono">ADMIN_USERNAME</span> /
-                {" "}<span className="font-mono">ADMIN_PASSWORD</span>.
+            {(DEFAULT_USERNAME || DEFAULT_PASSWORD) && (
+              <div className="rounded-md bg-ink border border-ink-line p-3 text-[11px] text-ink-mute leading-relaxed">
+                <div className="text-ink-text font-medium mb-1">Demo credentials</div>
+                {DEFAULT_USERNAME && <div>Username: <span className="font-mono text-ink-text">{DEFAULT_USERNAME}</span></div>}
+                {DEFAULT_PASSWORD && <div>Password: <span className="font-mono text-ink-text">{DEFAULT_PASSWORD}</span></div>}
               </div>
+            )}
+            <div className="text-[11px] text-ink-mute leading-relaxed">
+              Credentials are loaded from your <span className="font-mono">.env</span>:
+              {" "}<span className="font-mono">ADMIN_USERNAME</span> /
+              {" "}<span className="font-mono">ADMIN_PASSWORD</span>.
+              {" "}Optionally set <span className="font-mono">NEXT_PUBLIC_DEFAULT_USERNAME</span> /
+              {" "}<span className="font-mono">NEXT_PUBLIC_DEFAULT_PASSWORD</span> to pre-fill this form.
             </div>
           </form>
         </CardContent>

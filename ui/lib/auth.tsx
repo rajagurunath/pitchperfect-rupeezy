@@ -15,13 +15,14 @@ export type Profile = {
 const TOKEN_KEY = "rupeezy_token";
 const PROFILE_KEY = "rupeezy_profile";
 
-// Defaults shown on the login screen — read from a public Next env var so
-// the same .env values that drive the backend are surfaced to the user.
-// Falls back to sensible hackathon defaults if the env vars aren't set.
+// Optional pre-fills shown on the login screen — read from public Next env
+// vars. Empty strings by default so credentials are never baked into the
+// shipped bundle. Set NEXT_PUBLIC_DEFAULT_USERNAME / _PASSWORD locally if
+// you want the demo form to come pre-filled.
 export const DEFAULT_USERNAME =
-  process.env.NEXT_PUBLIC_DEFAULT_USERNAME || "admin";
+  process.env.NEXT_PUBLIC_DEFAULT_USERNAME || "";
 export const DEFAULT_PASSWORD =
-  process.env.NEXT_PUBLIC_DEFAULT_PASSWORD || "rupeezy123";
+  process.env.NEXT_PUBLIC_DEFAULT_PASSWORD || "";
 
 // ----- token storage --------------------------------------------------------
 
@@ -94,20 +95,24 @@ export function useAuth() {
   return { profile, ready, isAuthed: !!profile };
 }
 
-// ----- AuthGuard: redirects to /login when no session -----------------------
+// ----- AuthGuard: redirects to /login when no session ----------------------
+// `/` (landing) and `/login` are public — everything else requires a token.
+
+const PUBLIC_PATHS = new Set(["/", "/login"]);
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const path = usePathname();
   const { ready, isAuthed } = useAuth();
+  const isPublic = PUBLIC_PATHS.has(path ?? "");
 
   React.useEffect(() => {
     if (!ready) return;
-    if (path === "/login") return; // login page is public
+    if (isPublic) return;
     if (!isAuthed) router.replace("/login");
-  }, [ready, isAuthed, path, router]);
+  }, [ready, isAuthed, isPublic, router]);
 
   if (!ready) return null;
-  if (!isAuthed && path !== "/login") return null;
+  if (!isAuthed && !isPublic) return null;
   return <>{children}</>;
 }
