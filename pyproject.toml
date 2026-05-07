@@ -31,6 +31,7 @@ twilio-bot = "voice_agents.twilio_bot:main"
 twilio-dial = "voice_agents.twilio_dial:main"
 phone = "voice_agents.phone:main"
 api = "api.server:main"
+seed-demo = "scripts.seed_demo_data:run"
 
 [build-system]
 requires = ["hatchling"]
