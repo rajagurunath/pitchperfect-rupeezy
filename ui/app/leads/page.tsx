@@ -39,6 +39,7 @@ export default function LeadsPage() {
         phone: String(form.get("phone") || "").trim(),
         language_pref: String(form.get("language_pref") || "").trim() || undefined,
         voice_id: voiceId || undefined,
+        agent_name: String(form.get("agent_name") || "").trim() || undefined,
         notes: String(form.get("notes") || "").trim() || undefined,
       };
       if (!body.name || !body.phone) {
@@ -120,21 +121,34 @@ export default function LeadsPage() {
                 <Label htmlFor="language_pref">Language preference (optional)</Label>
                 <Input id="language_pref" name="language_pref" placeholder="hi-IN, en-IN, ta-IN" />
               </div>
-              <div className="space-y-1">
-                <Label htmlFor="voice_id">Voice (ElevenLabs)</Label>
-                <select
-                  id="voice_id"
-                  name="voice_id"
-                  value={voiceId}
-                  onChange={(e) => setVoiceId(e.target.value)}
-                  className="w-full rounded-lg border border-ink-line bg-ink px-3 py-2 text-sm text-ink-text outline-none focus:border-accent"
-                >
-                  {(voiceCatalog?.voices ?? []).map((v: Voice) => (
-                    <option key={v.voice_id} value={v.voice_id}>
-                      {v.name} — {v.description}
-                    </option>
-                  ))}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="agent_name">Agent name (optional)</Label>
+                  <Input
+                    id="agent_name"
+                    name="agent_name"
+                    placeholder="Priya, Anjali, Rohan…"
+                  />
+                  <p className="text-[11px] text-ink-mute">
+                    How the agent introduces itself on the call.
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="voice_id">Voice (ElevenLabs)</Label>
+                  <select
+                    id="voice_id"
+                    name="voice_id"
+                    value={voiceId}
+                    onChange={(e) => setVoiceId(e.target.value)}
+                    className="w-full rounded-lg border border-ink-line bg-ink px-3 py-2 text-sm text-ink-text outline-none focus:border-accent"
+                  >
+                    {(voiceCatalog?.voices ?? []).map((v: Voice) => (
+                      <option key={v.voice_id} value={v.voice_id}>
+                        {v.name} — {v.description}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="notes">Notes for the agent (optional)</Label>

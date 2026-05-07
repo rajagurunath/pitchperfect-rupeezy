@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS leads (
     phone TEXT NOT NULL,
     language_pref TEXT,
     voice_id TEXT,                  -- ElevenLabs voice ID; NULL → use server default
+    agent_name TEXT,                -- per-lead agent persona name; NULL → use AGENT_NAME env
     notes TEXT,
     -- queued | calling | done | dnd
     status TEXT NOT NULL DEFAULT 'queued',
@@ -106,6 +107,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE leads ADD COLUMN voice_id TEXT")
     except sqlite3.OperationalError:
         pass  # column already exists
+    try:
+        conn.execute("ALTER TABLE leads ADD COLUMN agent_name TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
 
 
 def _ensure_init() -> None:
@@ -146,15 +151,16 @@ def new_id(prefix: str) -> str:
 # ----- leads ------------------------------------------------------------------
 
 def insert_lead(name: str, phone: str, language_pref: str | None = None,
-                notes: str | None = None, voice_id: str | None = None) -> str:
+                notes: str | None = None, voice_id: str | None = None,
+                agent_name: str | None = None) -> str:
     lid = new_id("lead")
     ts = now_iso()
     with with_conn() as c:
         c.execute(
-            "INSERT INTO leads(id,name,phone,language_pref,voice_id,notes,"
-            "status,created_at,updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
-            (lid, name, phone, language_pref, voice_id, notes,
+            "INSERT INTO leads(id,name,phone,language_pref,voice_id,agent_name,"
+            "notes,status,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (lid, name, phone, language_pref, voice_id, agent_name, notes,
              "queued", ts, ts),
         )
     return lid

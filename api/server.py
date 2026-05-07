@@ -109,6 +109,7 @@ class LeadIn(BaseModel):
     phone: str = Field(..., description="E.164, e.g. +919444531354")
     language_pref: str | None = None
     voice_id: str | None = Field(default=None, description="ElevenLabs voice ID; null falls back to ELEVENLABS_VOICE_ID")
+    agent_name: str | None = Field(default=None, description="Agent persona name; null falls back to AGENT_NAME env")
     notes: str | None = None
 
 
@@ -213,8 +214,14 @@ async def create_lead(lead: LeadIn,
                       _user: dict = Depends(require_user)) -> dict[str, Any]:
     if not lead.phone.startswith("+"):
         raise HTTPException(400, "phone must be E.164 (start with +)")
-    lid = db.insert_lead(lead.name, lead.phone, lead.language_pref,
-                         lead.notes, lead.voice_id)
+    lid = db.insert_lead(
+        name=lead.name,
+        phone=lead.phone,
+        language_pref=lead.language_pref,
+        notes=lead.notes,
+        voice_id=lead.voice_id,
+        agent_name=(lead.agent_name or "").strip() or None,
+    )
     return db.get_lead(lid)
 
 
@@ -497,6 +504,8 @@ async def ws_handler(websocket: WebSocket) -> None:
             lead_row = db.get_lead(call_row["lead_id"])
     lead_name = (lead_row or {}).get("name")
     lead_notes = (lead_row or {}).get("notes")
+    # Per-lead agent persona; falls back to AGENT_NAME env (default "Priya").
+    lead_agent_name = (lead_row or {}).get("agent_name") or os.getenv("AGENT_NAME") or "Priya"
     voice_id = ((lead_row or {}).get("voice_id")
                 or os.getenv("ELEVENLABS_VOICE_ID", "hpp4J3VqNfWAUOO0d1Us"))
 
@@ -554,10 +563,11 @@ async def ws_handler(websocket: WebSocket) -> None:
     )
 
     system_prompt = build_system_prompt(
+        agent_name=lead_agent_name,
         lead_name=lead_name,
         lead_notes=lead_notes,
     )
-    greeting = build_greeting_instruction()
+    greeting = build_greeting_instruction(agent_name=lead_agent_name)
     context = LLMContext(
         messages=[
             {"role": "system", "content": system_prompt},
