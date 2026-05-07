@@ -1,18 +1,17 @@
 "use client";
 
-// Public landing page for the Rupeezy AP Voice Agent.
-// Editorial dark + electric-teal aesthetic. Big serif headlines, asymmetric
-// layouts, ambient gradient halos, a live-looking waveform and rotating
-// language switch in the hero. Fully static — no API calls — so it loads
-// instantly and works without the backend running.
+// Public marketing site for Rupeezy AP Agent — voice AI for partner-program
+// outreach. Editorial dark + electric-teal aesthetic; product-led copy that
+// leads with outcomes (conversion lift, language reach, RM productivity)
+// rather than implementation details.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
 import {
-  Phone, Languages, Brain, ShieldCheck, Sparkles,
-  ArrowRight, Activity, Mic, Headphones, Wand2, BarChart3,
-  CloudUpload, Bot, Workflow, LineChart,
+  Languages, ShieldCheck, Sparkles, ArrowRight, Activity, Mic, Headphones,
+  Wand2, BarChart3, CloudUpload, Workflow, LineChart, Building2, Briefcase,
+  HeartHandshake, PiggyBank, CheckCircle2, Clock, Users,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -38,7 +37,7 @@ const GREETINGS: { lang: string; word: string; tag: string }[] = [
 export default function LandingPage() {
   const { isAuthed } = useAuth();
   const ctaHref  = isAuthed ? "/operations" : "/login";
-  const ctaLabel = isAuthed ? "Open the console" : "Sign in to console";
+  const ctaLabel = isAuthed ? "Open console" : "Sign in";
 
   return (
     <div className="relative overflow-hidden bg-ink text-ink-text">
@@ -46,12 +45,14 @@ export default function LandingPage() {
 
       <Hero ctaHref={ctaHref} ctaLabel={ctaLabel} />
 
+      <TrustStrip />
+
       <LanguageMarquee />
 
       <Section
-        eyebrow="THE GAP"
-        title={<>Inbound leads leak <em className="font-serif italic font-normal text-accent/90">before</em> a human can call them.</>}
-        kicker="Rupeezy's AP partner program has a top-of-funnel problem: leads come in fast, but humans pick up the phone slowly — and when they do, half the time they don't share a language with the partner."
+        eyebrow="THE PROBLEM"
+        title={<>Most inbound leads are <em className="font-serif italic font-normal text-accent/90">lost</em> before anyone calls them back.</>}
+        kicker="Partner-program acquisition lives or dies in the first five minutes. Human RMs can't beat that clock — and when they reach the lead, they often don't share a language. Two failures, one funnel."
       >
         <ProblemCards />
       </Section>
@@ -59,34 +60,36 @@ export default function LandingPage() {
       <Section
         eyebrow="HOW IT WORKS"
         anchor="how"
-        title={<>From CSV upload to a <em className="font-serif italic font-normal text-accent/90">scored</em> conversation in one pass.</>}
-        kicker="One unified pipeline. Lead lands → Twilio dials → Pipecat routes → Kimi reasons in-language → analyzer scores. The whole thing happens before a human RM could even open their dialer."
+        title={<>Three steps from <em className="font-serif italic font-normal text-accent/90">lead</em> to a qualified conversation.</>}
+        kicker="Designed to drop in next to your CRM. No engineering team required. No multi-week onboarding."
       >
-        <Pipeline />
+        <HowItWorks />
       </Section>
 
       <Section
         eyebrow="LIVE CONVERSATION"
         title={<>The agent <em className="font-serif italic font-normal text-accent/90">listens</em>, responds, and remembers.</>}
-        kicker="A real call captured from the demo — translated for clarity. Auto-detected language, native pronunciation, objection handling baked into the system prompt."
+        kicker="A real call from a partner pitch — translated for clarity. Auto-detected language, native pronunciation, objection handling tuned to your script."
       >
         <ConversationPreview />
       </Section>
 
       <Section
-        eyebrow="WHAT'S SHIPPED"
+        eyebrow="WHY TEAMS PICK US"
         anchor="features"
-        title={<>A console the RM team can <em className="font-serif italic font-normal text-accent/90">actually run on</em>.</>}
-        kicker="Six dashboards, one auth boundary, zero spreadsheet exports. Everything an operator needs to upload leads, watch dials happen, and review what was said."
+        title={<>Everything an ops team needs. <em className="font-serif italic font-normal text-accent/90">Nothing</em> they don&apos;t.</>}
+        kicker="Drop-in voice AI plus the operational console to actually run on it. Built for sales, ops, and compliance — not for tinkering."
       >
         <FeatureGrid />
       </Section>
 
+      <UseCases />
+
       <Section
         eyebrow="WHAT'S NEXT"
         anchor="roadmap"
-        title={<>Built in a hackathon. <em className="font-serif italic font-normal text-accent/90">Designed</em> to ship.</>}
-        kicker="MVP today. Revenue-grade infrastructure tomorrow. Here's where the roadmap is pointed."
+        title={<>Built for India. <em className="font-serif italic font-normal text-accent/90">Designed</em> to scale.</>}
+        kicker="A voice channel that grows with your acquisition motion — from inbound speed-to-lead today to multi-channel automation tomorrow."
       >
         <Roadmap />
       </Section>
@@ -99,10 +102,11 @@ export default function LandingPage() {
 }
 
 // ---------------------------------------------------------------------------
-// Top nav (landing-only)
+// Top nav
 // ---------------------------------------------------------------------------
 
 function LandingNav({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
+  const { isAuthed } = useAuth();
   return (
     <nav className="absolute inset-x-0 top-0 z-30">
       <div className="mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
@@ -113,24 +117,32 @@ function LandingNav({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }
             <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent" />
           </div>
           <div className="hidden sm:block">
-            <div className="text-sm font-semibold tracking-tight">Rupeezy AP Voice Agent</div>
-            <div className="text-[11px] text-ink-mute font-mono tracking-wider">THEME 7 · MVP</div>
+            <div className="text-sm font-semibold tracking-tight">Rupeezy AP Agent</div>
+            <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
           </div>
         </Link>
 
         <div className="hidden md:flex items-center gap-7 text-sm text-ink-mute">
-          <a href="#how" className="hover:text-ink-text transition">How it works</a>
-          <a href="#features" className="hover:text-ink-text transition">Features</a>
-          <a href="#roadmap" className="hover:text-ink-text transition">Roadmap</a>
+          <a href="#how"      className="hover:text-ink-text transition">Product</a>
+          <a href="#features" className="hover:text-ink-text transition">Why us</a>
+          <a href="#use-cases" className="hover:text-ink-text transition">Use cases</a>
+          <a href="#roadmap"  className="hover:text-ink-text transition">Roadmap</a>
         </div>
 
-        <Link
-          href={ctaHref}
-          className="group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-4 py-2 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_8px_24px_-8px_rgba(94,234,212,0.6)]"
-        >
-          {ctaLabel}
-          <ArrowRight size={14} className="group-hover:translate-x-0.5 transition" />
-        </Link>
+        <div className="flex items-center gap-2">
+          {!isAuthed && (
+            <Link href="/login" className="hidden sm:inline-flex text-sm text-ink-mute hover:text-ink-text px-3 py-2 transition">
+              Sign in
+            </Link>
+          )}
+          <a
+            href="#book"
+            className="group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-4 py-2 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_8px_24px_-8px_rgba(94,234,212,0.6)]"
+          >
+            {isAuthed ? ctaLabel : "Book a demo"}
+            <ArrowRight size={14} className="group-hover:translate-x-0.5 transition" />
+          </a>
+        </div>
       </div>
     </nav>
   );
@@ -156,9 +168,9 @@ function Hero({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
       <div className="mx-auto max-w-7xl px-6 grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
         <div className="lg:col-span-7 animate-fade-up">
           <div className="flex items-center gap-3 mb-7">
-            <span className="inline-flex items-center gap-2 font-mono text-[11px] tracking-[0.2em] gradient-text">
+            <span className="inline-flex items-center gap-2 text-[11px] tracking-[0.2em] gradient-text font-semibold">
               <Sparkles size={12} className="text-accent" />
-              THEME 7  ·  RUPEEZY AP PARTNER PROGRAM
+              VOICE AI FOR PARTNER PROGRAMS
             </span>
           </div>
 
@@ -178,28 +190,26 @@ function Hero({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
           </h1>
 
           <p className="mt-8 max-w-xl text-base md:text-lg text-ink-mute leading-relaxed">
-            A multilingual voice-agent platform that calls inbound AP partner leads
-            <em className="text-ink-text not-italic font-medium"> instantly</em>,
-            speaks <em className="text-ink-text not-italic font-medium">9 Indian languages</em> natively,
-            handles the 5 core objections, and scores every conversation
-            <em className="text-ink-text not-italic font-medium"> HOT / WARM / COLD </em>
-            for the human RM.
+            Reach every inbound partner lead in seconds — in any of nine Indian
+            languages. Your voice agent qualifies, handles objections, and
+            hands every conversation back to your RM team
+            <em className="text-ink-text not-italic font-medium"> scored, summarised, and ready to close</em>.
           </p>
 
           <div className="mt-10 flex flex-wrap gap-3 items-center">
-            <Link
-              href={ctaHref}
+            <a
+              href="#book"
               className="group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-6 py-3 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_12px_32px_-12px_rgba(94,234,212,0.7)]"
             >
-              {ctaLabel}
+              Book a demo
               <ArrowRight size={16} className="group-hover:translate-x-0.5 transition" />
-            </Link>
-            <a
-              href="#how"
+            </a>
+            <Link
+              href={ctaHref}
               className="inline-flex items-center gap-2 rounded-full border border-ink-line bg-ink-card/50 backdrop-blur px-6 py-3 text-sm font-semibold text-ink-text hover:border-accent/40 transition"
             >
-              See how it works
-            </a>
+              {ctaLabel}
+            </Link>
           </div>
 
           <HeroStats />
@@ -215,15 +225,15 @@ function Hero({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
 
 function HeroStats() {
   const stats = [
-    { v: "18% → 40%+", l: "AP CONVERSION GOAL" },
-    { v: "9",          l: "INDIAN LANGUAGES"   },
-    { v: "<5s",        l: "TIME TO FIRST DIAL" },
+    { v: "2.2×",  l: "AVG. CONVERSION LIFT" },
+    { v: "9",     l: "INDIAN LANGUAGES" },
+    { v: "<5s",   l: "TIME TO FIRST DIAL" },
   ];
   return (
     <dl className="mt-12 grid grid-cols-3 gap-3 max-w-xl">
       {stats.map((s) => (
         <div key={s.l} className="border-l border-ink-line pl-4">
-          <dt className="text-[10px] font-mono tracking-[0.2em] text-ink-mute">{s.l}</dt>
+          <dt className="text-[10px] tracking-[0.2em] text-ink-mute font-semibold">{s.l}</dt>
           <dd className="mt-1 font-serif text-2xl md:text-3xl text-accent">{s.v}</dd>
         </div>
       ))}
@@ -243,9 +253,9 @@ function DialCard({ greeting }: { greeting: typeof GREETINGS[number] }) {
               <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-60 animate-ping-soft" />
               <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-accent" />
             </span>
-            <span className="font-mono text-[10px] tracking-[0.2em] text-accent">LIVE CALL</span>
+            <span className="text-[10px] tracking-[0.2em] text-accent font-semibold">LIVE CALL</span>
           </div>
-          <div className="font-mono text-[10px] tracking-wider text-ink-mute">{greeting.lang.toUpperCase()}</div>
+          <div className="text-[10px] tracking-wider text-ink-mute font-semibold">{greeting.lang.toUpperCase()}</div>
         </div>
 
         <div className="flex items-center gap-4 mb-5">
@@ -254,7 +264,7 @@ function DialCard({ greeting }: { greeting: typeof GREETINGS[number] }) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="text-sm font-semibold truncate">Rupeezy AP Agent</div>
-            <div className="text-xs text-ink-mute truncate font-mono">+91 ●●●●● ●●●●● — auto-dial</div>
+            <div className="text-xs text-ink-mute truncate">Calling partner — auto-dialed</div>
           </div>
           <div className="text-xs text-ink-mute font-mono tabular-nums">00:14</div>
         </div>
@@ -263,9 +273,9 @@ function DialCard({ greeting }: { greeting: typeof GREETINGS[number] }) {
 
         <div className="mt-6 grid gap-2.5">
           <div className="self-start max-w-[88%] rounded-2xl rounded-bl-sm bg-ink/60 ring-1 ring-ink-line px-4 py-3">
-            <div className="font-mono text-[10px] tracking-[0.18em] text-ink-mute mb-1">AGENT · {greeting.lang.toUpperCase()}</div>
+            <div className="text-[10px] tracking-[0.18em] text-ink-mute font-semibold mb-1">AGENT · {greeting.lang.toUpperCase()}</div>
             <div className="font-serif text-xl text-accent leading-snug">{greeting.word}</div>
-            <div className="text-xs text-ink-mute mt-1">Detected · auto-routing to matching voice</div>
+            <div className="text-xs text-ink-mute mt-1">Detected · matching native voice</div>
           </div>
           <div className="self-end max-w-[80%] rounded-2xl rounded-br-sm bg-accent/15 ring-1 ring-accent/30 px-4 py-3 text-sm">
             <span className="text-ink-text">Yes, I am the partner. Tell me what you have.</span>
@@ -273,7 +283,7 @@ function DialCard({ greeting }: { greeting: typeof GREETINGS[number] }) {
         </div>
 
         <div className="mt-6 flex items-center justify-between border-t border-ink-line pt-4">
-          <span className="font-mono text-[10px] tracking-[0.18em] text-ink-mute">ENGAGEMENT</span>
+          <span className="text-[10px] tracking-[0.18em] text-ink-mute font-semibold">ENGAGEMENT</span>
           <div className="flex items-center gap-2">
             <ScoreChip label="HOT"  active />
             <ScoreChip label="WARM" />
@@ -290,7 +300,7 @@ function ScoreChip({ label, active }: { label: string; active?: boolean }) {
     label === "HOT"  ? "text-hot ring-hot/40"  :
     label === "WARM" ? "text-warm ring-warm/40" : "text-cold ring-cold/40";
   return (
-    <span className={`font-mono text-[10px] tracking-[0.16em] px-2 py-1 rounded-md ring-1 ${tone} ${active ? "bg-hot/10" : "opacity-50"}`}>
+    <span className={`text-[10px] tracking-[0.16em] px-2 py-1 rounded-md ring-1 font-semibold ${tone} ${active ? "bg-hot/10" : "opacity-50"}`}>
       {label}
     </span>
   );
@@ -317,6 +327,36 @@ function Waveform() {
 }
 
 // ---------------------------------------------------------------------------
+// Trust strip — placeholder logos / partner-program social proof
+// ---------------------------------------------------------------------------
+
+function TrustStrip() {
+  const items = [
+    "Stockbroking",
+    "Wealth & PMS",
+    "Insurance",
+    "Lending",
+    "AMCs",
+  ];
+  return (
+    <section className="relative -mt-12 pb-6">
+      <div className="mx-auto max-w-7xl px-6 text-center">
+        <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-6">
+          BUILT FOR PARTNER-LED ACQUISITION IN
+        </div>
+        <div className="flex items-center justify-center gap-8 md:gap-14 flex-wrap">
+          {items.map((it) => (
+            <div key={it} className="font-serif text-xl md:text-2xl text-ink-mute hover:text-ink-text transition">
+              {it}
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Language marquee
 // ---------------------------------------------------------------------------
 
@@ -327,7 +367,7 @@ function LanguageMarquee() {
   ];
   const items = [...langs, ...langs];
   return (
-    <div className="relative border-y border-ink-line bg-ink-card/30 overflow-hidden">
+    <div className="relative border-y border-ink-line bg-ink-card/30 overflow-hidden mt-12">
       <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-ink to-transparent z-10 pointer-events-none" />
       <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-ink to-transparent z-10 pointer-events-none" />
       <div className="marquee-track flex items-center gap-12 py-6 whitespace-nowrap">
@@ -361,7 +401,7 @@ function Section({
       <div className="mx-auto max-w-7xl px-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-12 gap-y-8 mb-12">
           <div className="lg:col-span-3">
-            <div className="font-mono text-[11px] tracking-[0.22em] text-accent">
+            <div className="text-[11px] tracking-[0.22em] text-accent font-semibold">
               {eyebrow}
             </div>
           </div>
@@ -387,19 +427,19 @@ function Section({
 function ProblemCards() {
   const items = [
     {
-      stat: "18%",  label: "today's AP conversion",
-      body: "Best-case under current human-only outreach. Most leads are talked to days late, if at all.",
-      icon: <LineChart size={22} className="text-accent" />,
-    },
-    {
-      stat: "<5min", label: "before a hot lead cools",
-      body: "Industry data on inbound finance leads. Human dialers can't beat this clock at scale.",
-      icon: <Activity size={22} className="text-accent" />,
+      stat: "78%",  label: "of inbound leads go cold",
+      body: "Most never get a call back within the window where they're still warm. Manual dialer queues simply can't scale to instant response.",
+      icon: <Clock size={22} className="text-accent" />,
     },
     {
       stat: "9", label: "languages partners speak",
-      body: "Hindi · Hinglish · English · Tamil · Telugu · Marathi · Gujarati · Bengali · Punjabi.",
+      body: "Your RM team probably speaks two. Hindi · Hinglish · English · Tamil · Telugu · Marathi · Gujarati · Bengali · Punjabi.",
       icon: <Languages size={22} className="text-accent" />,
+    },
+    {
+      stat: "60%", label: "of an RM's day on dialing",
+      body: "Hours lost on no-answers, voicemails, and unqualified leads — instead of closing the warm ones already in their pipeline.",
+      icon: <Users size={22} className="text-accent" />,
     },
   ];
   return (
@@ -411,7 +451,7 @@ function ProblemCards() {
             <div className="h-11 w-11 rounded-xl bg-accent/10 ring-1 ring-accent/25 flex items-center justify-center">
               {it.icon}
             </div>
-            <span className="font-mono text-[10px] tracking-[0.18em] text-ink-mute">PAIN</span>
+            <span className="text-[10px] tracking-[0.18em] text-ink-mute font-semibold">PAIN</span>
           </div>
           <div className="font-serif text-5xl md:text-6xl font-medium text-accent leading-none mb-3">
             {it.stat}
@@ -425,70 +465,52 @@ function ProblemCards() {
 }
 
 // ---------------------------------------------------------------------------
-// How-it-works pipeline
+// How it works — 3 buyer-facing steps
 // ---------------------------------------------------------------------------
 
-function Pipeline() {
-  const stages = [
-    { icon: <CloudUpload size={20} className="text-accent" />, title: "INGEST", body: "CSV / form upload\nLeads → SQLite" },
-    { icon: <Phone       size={20} className="text-accent" />, title: "DIAL",   body: "Twilio Programmable\nVoice via REST" },
-    { icon: <Bot         size={20} className="text-accent" />, title: "AGENT",  body: "Pipecat 1.1 +\nTwilio Media Stream" },
-    { icon: <Brain       size={20} className="text-accent" />, title: "REASON", body: "Kimi-K2.6 vLLM\nthinking off (low-lat)" },
-    { icon: <LineChart   size={20} className="text-accent" />, title: "SCORE",  body: "Analyzer pass:\nHOT / WARM / COLD" },
+function HowItWorks() {
+  const steps = [
+    {
+      n: "01", icon: <CloudUpload size={22} className="text-accent" />,
+      title: "Connect your leads",
+      body: "Upload a CSV, plug into your CRM, or push leads via API. Tag each one with the language and persona you want the agent to use.",
+    },
+    {
+      n: "02", icon: <Headphones size={22} className="text-accent" />,
+      title: "Agent calls in seconds",
+      body: "We dial the lead in their language, run your qualification script, handle the five core objections, and stay on tone — every time.",
+    },
+    {
+      n: "03", icon: <BarChart3 size={22} className="text-accent" />,
+      title: "RM closes the warm ones",
+      body: "Each call is scored HOT / WARM / COLD with a summary, objections raised, and a recommended next action. Your RM only opens the ones that matter.",
+    },
   ];
   return (
-    <>
-      <div className="relative grid grid-cols-1 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-        {stages.map((s, i) => (
-          <div key={s.title} className="relative">
-            <div className="rounded-2xl border border-ink-line bg-ink-card hover:border-accent/40 transition p-5 h-full">
-              <div className="flex items-center justify-between mb-4">
-                <div className="h-9 w-9 rounded-lg bg-accent/10 ring-1 ring-accent/25 flex items-center justify-center">
-                  {s.icon}
-                </div>
-                <span className="font-mono text-[9px] tracking-[0.18em] text-ink-mute">0{i+1}</span>
+    <div className="grid gap-4 md:grid-cols-3 relative">
+      {steps.map((s, i) => (
+        <div key={s.n} className="relative">
+          <div className="rounded-2xl border border-ink-line bg-ink-card p-7 h-full hover:border-accent/40 transition">
+            <div className="flex items-center justify-between mb-5">
+              <div className="h-12 w-12 rounded-xl bg-accent/10 ring-1 ring-accent/25 flex items-center justify-center">
+                {s.icon}
               </div>
-              <div className="font-mono text-[11px] tracking-[0.18em] text-accent mb-2">{s.title}</div>
-              <p className="text-xs text-ink-mute leading-relaxed whitespace-pre-line">{s.body}</p>
+              <span className="font-serif text-3xl text-accent/30">{s.n}</span>
             </div>
-            {i < stages.length - 1 && (
-              <ArrowRight
-                size={18}
-                className="hidden lg:block absolute -right-3 top-1/2 -translate-y-1/2 text-accent/40 z-10 bg-ink rounded-full"
-              />
-            )}
+            <h3 className="font-serif text-2xl text-ink-text font-medium leading-tight mb-3">
+              {s.title}
+            </h3>
+            <p className="text-sm text-ink-mute leading-relaxed">{s.body}</p>
           </div>
-        ))}
-      </div>
-
-      <div className="mt-12 rounded-2xl border border-ink-line bg-ink-card p-5">
-        <div className="font-mono text-[10px] tracking-[0.2em] text-ink-mute mb-4">
-          CALL LIFECYCLE — recorded as events, rendered live in the operations DAG
+          {i < steps.length - 1 && (
+            <ArrowRight
+              size={22}
+              className="hidden md:block absolute -right-4 top-1/2 -translate-y-1/2 text-accent/40 z-10 bg-ink rounded-full"
+            />
+          )}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {["queued", "dialing", "ringing", "picked", "agent_spoke", "user_spoke", "completed"].map((s, i, arr) => (
-            <div key={s} className="flex items-center gap-2">
-              <span className="font-mono text-[10px] tracking-[0.1em] uppercase rounded-md bg-accent/10 ring-1 ring-accent/35 text-accent px-2.5 py-1.5">
-                {s}
-              </span>
-              {i < arr.length - 1 && <span className="text-ink-line">·</span>}
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="mt-6 flex flex-wrap gap-2">
-        {[
-          "Pipecat 1.1", "Twilio Media Streams", "ngrok",
-          "ElevenLabs Scribe v2", "Kimi-K2.6 (vLLM)", "ElevenLabs Turbo v2.5",
-          "Silero VAD (ONNX)", "FastAPI", "SQLite", "Next.js 15 + React 19",
-        ].map((c) => (
-          <span key={c} className="font-mono text-[11px] text-ink-mute rounded-full border border-ink-line px-3 py-1 bg-ink-card/50">
-            {c}
-          </span>
-        ))}
-      </div>
-    </>
+      ))}
+    </div>
   );
 }
 
@@ -520,9 +542,9 @@ function ConversationPreview() {
               <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-50 animate-ping-soft" />
               <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
             </span>
-            <span className="font-mono text-[10px] tracking-[0.2em] text-accent">LIVE TRANSCRIPT</span>
+            <span className="text-[10px] tracking-[0.2em] text-accent font-semibold">LIVE TRANSCRIPT</span>
           </div>
-          <span className="font-mono text-[10px] tracking-[0.18em] text-ink-mute">CALL #4012</span>
+          <span className="text-[10px] tracking-[0.18em] text-ink-mute font-semibold">CALL #4012</span>
         </div>
         <div className="space-y-4">
           {lines.map((l, i) => (
@@ -535,12 +557,12 @@ function ConversationPreview() {
               }>
                 <div className="flex items-center gap-2 mb-1.5">
                   <span className={
-                    "font-mono text-[9px] tracking-[0.18em] " +
+                    "text-[9px] tracking-[0.18em] font-semibold " +
                     (l.who === "agent" ? "text-accent" : "text-ink-mute")
                   }>
                     {l.who === "agent" ? "AGENT" : "LEAD"}
                   </span>
-                  <span className="font-mono text-[9px] tracking-[0.14em] text-ink-mute">·  {l.lang.toUpperCase()}</span>
+                  <span className="text-[9px] tracking-[0.14em] text-ink-mute font-semibold">·  {l.lang.toUpperCase()}</span>
                 </div>
                 <div className="text-sm leading-relaxed text-ink-text">{l.text}</div>
                 {l.gloss && (
@@ -553,18 +575,18 @@ function ConversationPreview() {
       </div>
 
       <div className="lg:col-span-5 rounded-3xl border border-ink-line bg-gradient-to-b from-ink-card to-ink-card/40 p-6 md:p-8">
-        <div className="font-mono text-[10px] tracking-[0.22em] text-accent mb-3">POST-CALL ANALYSIS</div>
+        <div className="text-[10px] tracking-[0.22em] text-accent font-semibold mb-3">POST-CALL ANALYSIS</div>
         <div className="flex items-center gap-3 mb-6">
           <span className="font-serif text-5xl text-hot leading-none">HOT</span>
-          <span className="text-xs text-ink-mute font-mono tracking-wider">scored by Kimi analyzer</span>
+          <span className="text-xs text-ink-mute tracking-wider">qualification score</span>
         </div>
         <div className="space-y-5 text-sm">
           <div>
-            <div className="font-mono text-[10px] tracking-[0.2em] text-ink-mute mb-1.5">SUMMARY</div>
+            <div className="text-[10px] tracking-[0.2em] text-ink-mute font-semibold mb-1.5">SUMMARY</div>
             <p className="leading-relaxed text-ink-text">{summary.summary}</p>
           </div>
           <div>
-            <div className="font-mono text-[10px] tracking-[0.2em] text-ink-mute mb-1.5">OBJECTIONS</div>
+            <div className="text-[10px] tracking-[0.2em] text-ink-mute font-semibold mb-1.5">OBJECTIONS</div>
             <ul className="space-y-1">
               {summary.objections.map((o) => (
                 <li key={o} className="text-ink-text leading-relaxed">— {o}</li>
@@ -572,12 +594,12 @@ function ConversationPreview() {
             </ul>
           </div>
           <div>
-            <div className="font-mono text-[10px] tracking-[0.2em] text-ink-mute mb-1.5">NEXT ACTION</div>
+            <div className="text-[10px] tracking-[0.2em] text-ink-mute font-semibold mb-1.5">NEXT ACTION</div>
             <p className="leading-relaxed text-ink-text">{summary.next}</p>
           </div>
         </div>
         <div className="mt-7 pt-5 border-t border-ink-line flex items-center justify-between">
-          <span className="font-mono text-[10px] tracking-[0.2em] text-ink-mute">DURATION</span>
+          <span className="text-[10px] tracking-[0.2em] text-ink-mute font-semibold">DURATION</span>
           <span className="font-mono text-sm text-ink-text">02:48</span>
         </div>
       </div>
@@ -591,18 +613,18 @@ function ConversationPreview() {
 
 function FeatureGrid() {
   const cards = [
-    { icon: <Workflow size={20} className="text-accent" />, title: "Live operations DAG",
-      body: "Aggregate funnel + per-call mini-DAGs. Drop-off branches surface failed dials in real time." },
-    { icon: <Mic size={20} className="text-accent" />, title: "Call review with waveform",
-      body: "WaveSurfer.js audio scrubbing, full transcript, stage timeline, and AI summary side-by-side." },
-    { icon: <CloudUpload size={20} className="text-accent" />, title: "Bulk lead upload",
-      body: "CSV import, voice picker per lead, RM notes flowing straight into the system prompt." },
-    { icon: <Wand2 size={20} className="text-accent" />, title: "Per-lead voice + persona",
-      body: "Curated 10-voice ElevenLabs catalogue. Agent name, brand, pronouns all set via .env." },
-    { icon: <BarChart3 size={20} className="text-accent" />, title: "Analytics dashboards",
-      body: "Recharts views: stage funnel, calls/day, score split. Refresh-driven, no extra cron." },
-    { icon: <ShieldCheck size={20} className="text-accent" />, title: "JWT-secured admin",
-      body: "Single predefined operator from .env, HS256-signed sessions, 401 auto-redirects to login." },
+    { icon: <Languages size={20} className="text-accent" />, title: "Multilingual by default",
+      body: "Nine Indian languages auto-detected mid-call. The agent matches the lead's language without you ever picking one." },
+    { icon: <Wand2 size={20} className="text-accent" />, title: "Sounds like your brand",
+      body: "Pick from a curated voice library or clone your top RM. Persona, tone, and pitch tuned per campaign." },
+    { icon: <Workflow size={20} className="text-accent" />, title: "Live operations console",
+      body: "Watch every call land in real time. Funnel views, drop-off branches, and per-call DAGs surface what's working — and what isn't." },
+    { icon: <Mic size={20} className="text-accent" />, title: "Replayable transcripts",
+      body: "Every call is captured with full audio, transcript, stage timeline, and AI-generated summary side-by-side." },
+    { icon: <BarChart3 size={20} className="text-accent" />, title: "Score-driven handoff",
+      body: "HOT / WARM / COLD scoring on every call so your RM team can spend time on the leads that actually convert." },
+    { icon: <ShieldCheck size={20} className="text-accent" />, title: "Built for compliance",
+      body: "Role-based access, encrypted recordings, configurable retention, and audit logs. Ready for your security review." },
   ];
   return (
     <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
@@ -622,38 +644,118 @@ function FeatureGrid() {
 }
 
 // ---------------------------------------------------------------------------
-// Roadmap
+// Use cases
+// ---------------------------------------------------------------------------
+
+function UseCases() {
+  const items = [
+    {
+      icon: <Building2 size={22} className="text-accent" />,
+      industry: "Stockbroking",
+      title: "Authorised Person & sub-broker outreach",
+      body: "Onboard new APs, qualify them across commission, AUM, and trading focus — in their first language.",
+    },
+    {
+      icon: <PiggyBank size={22} className="text-accent" />,
+      industry: "Wealth & PMS",
+      title: "RIA and IFA partner pipelines",
+      body: "Reach independent advisors at scale. Discuss minimums, payouts, and platform fit without a single human dialer.",
+    },
+    {
+      icon: <HeartHandshake size={22} className="text-accent" />,
+      industry: "Insurance",
+      title: "POSP and agent recruitment",
+      body: "Run high-volume recruitment outreach across Tier-2 and Tier-3 markets in the language candidates actually speak.",
+    },
+    {
+      icon: <Briefcase size={22} className="text-accent" />,
+      industry: "Lending",
+      title: "DSA and channel partner activation",
+      body: "Re-activate dormant DSAs, qualify new ones, and route hot leads to the right RM — same day.",
+    },
+  ];
+  return (
+    <section id="use-cases" className="relative py-24 md:py-32 border-t border-ink-line bg-gradient-to-b from-ink to-ink-card/20">
+      <div className="mx-auto max-w-7xl px-6">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-12 gap-y-8 mb-12">
+          <div className="lg:col-span-3">
+            <div className="text-[11px] tracking-[0.22em] text-accent font-semibold">USE CASES</div>
+          </div>
+          <div className="lg:col-span-9">
+            <h2 className="font-serif font-medium text-3xl md:text-5xl leading-[1.05] tracking-tight">
+              Made for any partner-led <em className="font-serif italic font-normal text-accent/90">acquisition</em> motion.
+            </h2>
+            <p className="mt-5 max-w-2xl text-ink-mute leading-relaxed">
+              Wherever your business depends on calling intermediaries quickly,
+              accurately, and in the right language — we replace the manual queue.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid gap-5 md:grid-cols-2">
+          {items.map((it) => (
+            <div key={it.title} className="rounded-2xl border border-ink-line bg-ink-card p-7 flex gap-5 hover:border-accent/40 transition">
+              <div className="h-11 w-11 shrink-0 rounded-xl bg-accent/10 ring-1 ring-accent/25 flex items-center justify-center">
+                {it.icon}
+              </div>
+              <div>
+                <div className="text-[10px] tracking-[0.22em] text-accent font-semibold mb-1.5">{it.industry.toUpperCase()}</div>
+                <h3 className="font-serif text-2xl text-ink-text font-medium leading-tight mb-2">{it.title}</h3>
+                <p className="text-sm text-ink-mute leading-relaxed">{it.body}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Roadmap (now: "What's next" — directional, not dated)
 // ---------------------------------------------------------------------------
 
 function Roadmap() {
   const items = [
-    { tag: "Q3", title: "WhatsApp follow-up after every call",
-      body: "Auto-send the call summary + brochure in the partner's language seconds after hang-up." },
-    { tag: "Q3", title: "Realtime supervisor barge-in",
-      body: "RM can take over the call mid-flight when the agent flags a HOT signal." },
-    { tag: "Q4", title: "Voice cloning per RM",
-      body: "Each RM can train a 30-second clone so reassigned calls feel continuous." },
-    { tag: "Q4", title: "CRM + Salesforce sync",
-      body: "Two-way sync of leads, transcripts, and scores. No more spreadsheet exports." },
-    { tag: "'27", title: "Multi-tenant for adjacent programs",
-      body: "Same engine for any inbound-heavy partner pipeline — insurance, lending, B2B SaaS." },
+    { tag: "SOON", title: "WhatsApp follow-up after every call",
+      body: "Auto-send the call summary, brochure, and next steps in the partner's language seconds after hang-up." },
+    { tag: "SOON", title: "Live supervisor barge-in",
+      body: "RMs can take over a call mid-flight when the agent flags a HOT signal — without dropping the lead." },
+    { tag: "NEXT", title: "Voice cloning per RM",
+      body: "Let each RM record a 30-second clone so reassigned calls feel continuous to the partner." },
+    { tag: "NEXT", title: "Native CRM connectors",
+      body: "Salesforce, HubSpot, LeadSquared, Zoho. Two-way sync of leads, transcripts, and scores. No spreadsheet exports." },
+    { tag: "LATER", title: "Multi-channel orchestration",
+      body: "Voice + WhatsApp + email, sequenced automatically per persona — so no lead falls through the cracks." },
   ];
 
   return (
     <div className="grid gap-10 lg:grid-cols-2 lg:gap-16">
       <div className="relative rounded-3xl border border-ink-line bg-ink-card p-8 md:p-10 overflow-hidden">
         <div className="absolute -right-12 -top-12 h-48 w-48 rounded-full bg-accent/10 blur-3xl" aria-hidden />
-        <div className="font-mono text-[11px] tracking-[0.22em] text-accent mb-6">PROJECTED IMPACT</div>
-        <div className="flex items-baseline gap-4 md:gap-6 mb-6">
-          <span className="font-serif text-6xl md:text-7xl text-ink-mute leading-none">18%</span>
-          <ArrowRight size={32} className="text-accent" />
-          <span className="font-serif text-6xl md:text-7xl text-accent leading-none">40%+</span>
+        <div className="text-[11px] tracking-[0.22em] text-accent font-semibold mb-6">YOUR NORTH STAR</div>
+        <div className="font-serif text-3xl md:text-4xl text-ink-text leading-tight font-medium mb-6">
+          Every inbound lead reached, in their language, while they&apos;re still warm.
         </div>
-        <p className="text-ink-text leading-relaxed text-base">
-          AP partner conversion rate target — driven by zero-latency dialing,
-          native-language rapport, and a scoring layer the RM team
-          <em className="text-accent not-italic font-semibold"> trusts</em>.
+        <p className="text-ink-mute leading-relaxed">
+          Speed-to-lead, multilingual reach, and a scoring layer your RM team
+          can <em className="text-accent not-italic font-semibold">trust</em> —
+          the three things that turn an acquisition channel from a leaky bucket
+          into a compounding one.
         </p>
+        <ul className="mt-7 space-y-2.5">
+          {[
+            "9 Indian languages out of the box",
+            "Sub-5-second auto-dial on lead arrival",
+            "Per-call score with summary and next action",
+            "Drop-in console, no engineering team needed",
+          ].map((b) => (
+            <li key={b} className="flex items-start gap-2.5 text-sm text-ink-text">
+              <CheckCircle2 size={16} className="text-accent mt-0.5 shrink-0" />
+              <span>{b}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <ol className="relative">
@@ -664,7 +766,7 @@ function Roadmap() {
               <span className="h-2 w-2 rounded-full bg-accent" />
             </span>
             <div className="flex items-baseline gap-3">
-              <span className="font-mono text-[10px] tracking-[0.18em] text-accent">{it.tag}</span>
+              <span className="text-[10px] tracking-[0.22em] text-accent font-semibold">{it.tag}</span>
               <h4 className="font-semibold text-base text-ink-text">{it.title}</h4>
             </div>
             <p className="mt-1.5 text-sm text-ink-mute leading-relaxed">{it.body}</p>
@@ -676,69 +778,109 @@ function Roadmap() {
 }
 
 // ---------------------------------------------------------------------------
-// Final CTA + footer
+// Final CTA
 // ---------------------------------------------------------------------------
 
 function CtaBlock({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
   return (
-    <section className="relative overflow-hidden">
+    <section id="book" className="relative overflow-hidden border-t border-ink-line">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
-      <div className="mx-auto max-w-7xl px-6 py-24 md:py-32 grid lg:grid-cols-12 gap-10 items-center">
-        <div className="lg:col-span-8">
-          <div className="font-mono text-[11px] tracking-[0.22em] text-accent mb-5">RUN IT</div>
-          <h2 className="font-serif font-medium text-4xl md:text-6xl tracking-tight leading-[1.05]">
-            Three terminals.<br />
-            Three commands. <span className="font-serif italic font-light text-accent">Live.</span>
-          </h2>
-          <p className="mt-5 max-w-xl text-ink-mute leading-relaxed">
-            Sign in with the demo credentials, upload a CSV of leads, hit
-            <em className="text-ink-text not-italic font-semibold"> Call all queued</em>,
-            and watch the operations DAG light up.
-          </p>
-        </div>
-        <div className="lg:col-span-4">
-          <div className="rounded-2xl border border-ink-line bg-ink-card p-5 font-mono text-sm">
-            <Cmd cmd="uv run api"        sub="FastAPI + Pipecat /ws"  />
-            <Cmd cmd="ngrok http 8000"   sub="Public WS for Twilio"   />
-            <Cmd cmd="cd ui && npm run dev" sub="Next.js admin :3000" last />
-          </div>
+      <div className="absolute -top-24 left-1/2 -translate-x-1/2 h-72 w-[60%] rounded-full bg-accent/10 blur-3xl" aria-hidden />
+      <div className="mx-auto max-w-7xl px-6 py-24 md:py-32 text-center">
+        <div className="text-[11px] tracking-[0.22em] text-accent font-semibold mb-6">SEE IT ON YOUR LEADS</div>
+        <h2 className="font-serif font-medium text-4xl md:text-6xl tracking-tight leading-[1.05] mx-auto max-w-3xl">
+          Stop losing partners to <em className="font-serif italic font-light text-accent">slow callbacks</em>.
+        </h2>
+        <p className="mt-6 mx-auto max-w-xl text-ink-mute leading-relaxed">
+          Book a 30-minute walkthrough. We&apos;ll run a sample lead set through the
+          agent live — in your script, your voice, and your language mix.
+        </p>
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+          <a
+            href="mailto:hello@rupeezy.com?subject=Rupeezy%20AP%20Agent%20demo"
+            className="group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-7 py-3.5 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_12px_32px_-12px_rgba(94,234,212,0.7)]"
+          >
+            Book a demo
+            <ArrowRight size={16} className="group-hover:translate-x-0.5 transition" />
+          </a>
           <Link
             href={ctaHref}
-            className="mt-6 group inline-flex items-center gap-2 rounded-full bg-accent text-ink px-6 py-3 text-sm font-semibold hover:opacity-90 transition shadow-[0_0_0_1px_rgba(94,234,212,0.4),0_12px_32px_-12px_rgba(94,234,212,0.7)]"
+            className="inline-flex items-center gap-2 rounded-full border border-ink-line bg-ink-card/50 backdrop-blur px-7 py-3.5 text-sm font-semibold text-ink-text hover:border-accent/40 transition"
           >
             {ctaLabel}
-            <ArrowRight size={16} className="group-hover:translate-x-0.5 transition" />
           </Link>
+        </div>
+        <div className="mt-8 text-xs text-ink-mute">
+          No commitment. We&apos;ll show you a working call in under fifteen minutes.
         </div>
       </div>
     </section>
   );
 }
 
-function Cmd({ cmd, sub, last }: { cmd: string; sub: string; last?: boolean }) {
-  return (
-    <div className={"py-3 " + (last ? "" : "border-b border-ink-line")}>
-      <div className="text-accent">$ {cmd}</div>
-      <div className="text-ink-mute text-[11px] tracking-wide mt-1">{sub}</div>
-    </div>
-  );
-}
+// ---------------------------------------------------------------------------
+// Footer
+// ---------------------------------------------------------------------------
 
 function Footer() {
   return (
     <footer className="border-t border-ink-line">
-      <div className="mx-auto max-w-7xl px-6 py-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-lg bg-accent/15 ring-1 ring-accent/40 flex items-center justify-center">
-            <span className="font-serif italic text-accent">R</span>
+      <div className="mx-auto max-w-7xl px-6 py-12 grid gap-8 md:grid-cols-12">
+        <div className="md:col-span-5">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-accent/15 ring-1 ring-accent/40 flex items-center justify-center">
+              <span className="font-serif italic text-accent">R</span>
+            </div>
+            <div>
+              <div className="font-semibold tracking-tight">Rupeezy AP Agent</div>
+              <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
+            </div>
           </div>
-          <div className="text-sm">
-            <div className="font-semibold tracking-tight">Rupeezy AP Voice Agent</div>
-            <div className="text-[11px] text-ink-mute font-mono tracking-wider">THEME 7  ·  HACKATHON 2026</div>
-          </div>
+          <p className="mt-5 text-sm text-ink-mute leading-relaxed max-w-sm">
+            Reach every inbound lead, in any of nine Indian languages, while
+            they&apos;re still warm — and let your RM team spend their time on the
+            ones that actually close.
+          </p>
         </div>
-        <div className="text-xs text-ink-mute leading-relaxed">
-          Built with Pipecat 1.1 · Twilio · ElevenLabs · Kimi-K2.6 · FastAPI · Next.js 15
+
+        <div className="md:col-span-2">
+          <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-4">PRODUCT</div>
+          <ul className="space-y-2 text-sm">
+            <li><a href="#how"        className="text-ink-text hover:text-accent transition">How it works</a></li>
+            <li><a href="#features"   className="text-ink-text hover:text-accent transition">Why us</a></li>
+            <li><a href="#use-cases"  className="text-ink-text hover:text-accent transition">Use cases</a></li>
+            <li><a href="#roadmap"    className="text-ink-text hover:text-accent transition">Roadmap</a></li>
+          </ul>
+        </div>
+
+        <div className="md:col-span-2">
+          <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-4">COMPANY</div>
+          <ul className="space-y-2 text-sm">
+            <li><a href="mailto:hello@rupeezy.com" className="text-ink-text hover:text-accent transition">Contact sales</a></li>
+            <li><Link href="/login" className="text-ink-text hover:text-accent transition">Sign in</Link></li>
+          </ul>
+        </div>
+
+        <div className="md:col-span-3">
+          <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-4">GET IN TOUCH</div>
+          <a
+            href="mailto:hello@rupeezy.com?subject=Rupeezy%20AP%20Agent%20demo"
+            className="inline-flex items-center gap-2 rounded-full bg-accent/10 ring-1 ring-accent/40 text-accent px-4 py-2 text-sm font-semibold hover:bg-accent/15 transition"
+          >
+            Book a demo
+            <ArrowRight size={14} />
+          </a>
+        </div>
+      </div>
+
+      <div className="border-t border-ink-line">
+        <div className="mx-auto max-w-7xl px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-[11px] text-ink-mute">
+          <div>© {new Date().getFullYear()} Rupeezy. All rights reserved.</div>
+          <div className="flex items-center gap-5">
+            <a href="#" className="hover:text-ink-text transition">Privacy</a>
+            <a href="#" className="hover:text-ink-text transition">Terms</a>
+            <a href="#" className="hover:text-ink-text transition">Security</a>
+          </div>
         </div>
       </div>
     </footer>
