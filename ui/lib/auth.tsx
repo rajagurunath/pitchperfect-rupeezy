@@ -46,7 +46,16 @@ export function clearSession() {
 export function readProfile(): Profile | null {
   if (typeof window === "undefined") return null;
   const raw = window.localStorage.getItem(PROFILE_KEY);
-  return raw ? (JSON.parse(raw) as Profile) : null;
+  // Defensive: an older session can have leaked the literal string "undefined"
+  // here (e.g. JSON.stringify(undefined) → undefined → coerced to "undefined"),
+  // which would crash JSON.parse. Treat it like a missing profile.
+  if (!raw || raw === "undefined" || raw === "null") return null;
+  try {
+    return JSON.parse(raw) as Profile;
+  } catch {
+    window.localStorage.removeItem(PROFILE_KEY);
+    return null;
+  }
 }
 
 // ----- API helpers (login + me) ---------------------------------------------

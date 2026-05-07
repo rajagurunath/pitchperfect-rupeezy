@@ -26,10 +26,24 @@ export type CallEvent = {
   ts: string;
 };
 
+export type KpiBucket = {
+  total: number;
+  hot: number;
+  warm: number;
+  cold: number;
+  completed: number;
+  avg_duration: number;
+  pickup_rate: number;
+};
+
 export type Analytics = {
   stage_funnel: Record<string, number>;
   calls_by_day: { day: string; total: number; hot: number; warm: number; cold: number }[];
   score_split: { hot: number; warm: number; cold: number };
+  kpi: { window_days: number; current: KpiBucket; previous: KpiBucket };
+  language_breakdown: { language: string; total: number; hot: number; warm: number; cold: number }[];
+  duration_by_score: { score: string; n: number; avg_duration: number }[];
+  hour_of_day: { hour: number; total: number; completed: number }[];
 };
 
 export type Call = {

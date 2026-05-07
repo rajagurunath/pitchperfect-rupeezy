@@ -163,13 +163,17 @@ async def dashboard(_user: dict = Depends(require_user)) -> dict[str, Any]:
 @app.get("/api/analytics")
 async def analytics(days: int = 14,
                     _user: dict = Depends(require_user)) -> dict[str, Any]:
-    """Backs the /analytics page: funnel by stage, calls-by-day, score split."""
+    """Backs the /analytics page: full breakdown — KPIs with deltas,
+    funnel by stage, calls-by-day, score split, language mix, duration by
+    score, hour-of-day volume."""
     return {
-        "stage_funnel": db.stage_funnel(),
-        "calls_by_day": db.calls_by_day(days=days),
-        "score_split": {
-            k: db.funnel_metrics()[k] for k in ("hot", "warm", "cold")
-        },
+        "stage_funnel":       db.stage_funnel(),
+        "calls_by_day":       db.calls_by_day(days=days),
+        "score_split":        {k: db.funnel_metrics()[k] for k in ("hot", "warm", "cold")},
+        "kpi":                db.kpi_summary(days=days),
+        "language_breakdown": db.language_breakdown(days=days),
+        "duration_by_score":  db.duration_by_score(days=days),
+        "hour_of_day":        db.hour_of_day_volume(days=days),
     }
 
 

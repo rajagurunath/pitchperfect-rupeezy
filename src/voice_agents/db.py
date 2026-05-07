@@ -336,6 +336,106 @@ def stage_funnel() -> dict[str, int]:
     return out
 
 
+def kpi_summary(days: int = 14) -> dict[str, Any]:
+    """Current period totals + matching previous period for delta charts.
+
+    The two buckets are *half* of the requested window each, so a 14-day
+    page shows a "last 7 days vs prior 7 days" delta. That's more
+    actionable than 14 vs 14 (which decays slowly) and works with seed
+    data that only covers the chart window.
+    """
+    half = max(1, days // 2)
+
+    def _bucket(start: str, end: str) -> dict[str, Any]:
+        with with_conn() as c:
+            r = c.execute(
+                """
+                SELECT
+                  COUNT(*)                                       AS total,
+                  SUM(CASE WHEN score='HOT'  THEN 1 ELSE 0 END)  AS hot,
+                  SUM(CASE WHEN score='WARM' THEN 1 ELSE 0 END)  AS warm,
+                  SUM(CASE WHEN score='COLD' THEN 1 ELSE 0 END)  AS cold,
+                  SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed,
+                  ROUND(AVG(CASE WHEN duration_seconds IS NOT NULL THEN duration_seconds END), 1) AS avg_duration,
+                  ROUND(100.0 * SUM(CASE WHEN status IN ('completed','in-progress') THEN 1 ELSE 0 END)
+                              / NULLIF(COUNT(*), 0), 1) AS pickup_rate
+                FROM calls
+                WHERE date(created_at) >= date('now', ?)
+                  AND date(created_at) <  date('now', ?)
+                """,
+                (start, end),
+            ).fetchone()
+        return {k: (r[k] or 0) for k in r.keys()}
+
+    return {
+        "window_days": half,
+        "current":  _bucket(f"-{half} days",     "+1 days"),
+        "previous": _bucket(f"-{2*half} days", f"-{half} days"),
+    }
+
+
+def language_breakdown(days: int = 14) -> list[dict[str, Any]]:
+    """Calls grouped by the lead's language preference."""
+    with with_conn() as c:
+        rows = c.execute(
+            """
+            SELECT
+              COALESCE(leads.language_pref, 'Unknown') AS language,
+              COUNT(*) AS total,
+              SUM(CASE WHEN calls.score='HOT'  THEN 1 ELSE 0 END) AS hot,
+              SUM(CASE WHEN calls.score='WARM' THEN 1 ELSE 0 END) AS warm,
+              SUM(CASE WHEN calls.score='COLD' THEN 1 ELSE 0 END) AS cold
+            FROM calls
+            LEFT JOIN leads ON leads.id = calls.lead_id
+            WHERE date(calls.created_at) >= date('now', ?)
+            GROUP BY language
+            ORDER BY total DESC
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def duration_by_score(days: int = 14) -> list[dict[str, Any]]:
+    """Avg call duration by score bucket — HOT calls are typically longer."""
+    with with_conn() as c:
+        rows = c.execute(
+            """
+            SELECT
+              COALESCE(score, 'UNSCORED') AS score,
+              COUNT(*) AS n,
+              ROUND(AVG(duration_seconds), 1) AS avg_duration
+            FROM calls
+            WHERE date(created_at) >= date('now', ?)
+              AND duration_seconds IS NOT NULL
+            GROUP BY score
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def hour_of_day_volume(days: int = 14) -> list[dict[str, Any]]:
+    """Call volume bucketed by hour-of-day (0-23). Useful for picking
+    an outbound dial window."""
+    with with_conn() as c:
+        rows = c.execute(
+            """
+            SELECT
+              CAST(strftime('%H', started_at) AS INTEGER) AS hour,
+              COUNT(*) AS total,
+              SUM(CASE WHEN status='completed' THEN 1 ELSE 0 END) AS completed
+            FROM calls
+            WHERE started_at IS NOT NULL
+              AND date(created_at) >= date('now', ?)
+            GROUP BY hour
+            ORDER BY hour ASC
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
 def calls_by_day(days: int = 14) -> list[dict[str, Any]]:
     """Returns [{day:'2026-05-07', total:N, hot:N, warm:N, cold:N}, ...]"""
     with with_conn() as c:
