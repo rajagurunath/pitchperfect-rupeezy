@@ -1,9 +1,12 @@
-# Rupeezy AP Voice Agent — MVP
+# PitchPerfect — Voice AI for partner programs
 
-LiveKit + ElevenLabs voice agent that places an outbound call to an Indian
-phone number, runs a Hindi/English/Hinglish sales conversation pitching the
-Rupeezy Authorized Person (AP) program, and writes a per-call JSON
-transcript log.
+Multilingual voice agent that auto-dials inbound partner-program leads in
+seconds, runs the qualification pitch in any of nine Indian languages,
+handles the core objections, and hands every call back to the human RM
+team scored **HOT / WARM / COLD** with a one-paragraph summary.
+
+> Built for **Theme 7** (Rupeezy AP partner program) and currently powering
+> Rupeezy's AP outreach in production.
 
 ## 60-second explainer
 
@@ -17,21 +20,109 @@ https://github.com/rajagurunath/rupeezy-voice-agents/raw/main/deliverables/rupee
 
 - 📊 [Slides (PPTX)](deliverables/rupeezy_voice_agent_deck.pptx) — open in PowerPoint, Keynote, or Google Slides
 - 📄 [Slides (PDF)](deliverables/rupeezy_voice_agent_deck.pdf) — preview in any browser
-- 📁 [All deliverables (deck + video + landing page)](deliverables/README.md)
+- 📁 [All deliverables](deliverables/README.md) — deck, video, landing page, deploy notes
+- 🎙 [Loom recording script](transcripts.md) — 5-minute demo with phone call
 
 ---
 
-This is the MVP plumbing for hackathon Theme 7. It proves:
+## Quick start (with `make`)
 
-- LiveKit Agents 1.x worker with `AgentSession` (STT → LLM → TTS pipeline)
-- ElevenLabs Scribe v2 realtime STT (Hindi + Hinglish auto-detect)
-- ElevenLabs `eleven_turbo_v2_5` TTS (Hindi/English voice synthesis)
-- OpenAI `gpt-4o-mini` LLM with the Rupeezy AP system prompt
-- SIP outbound dialing to Indian PSTN via a third-party trunk (Plivo / Telnyx)
-- JSON conversation log per call: timestamps, speaker, language, text
+Everything below assumes you've cloned the repo and are sitting in its
+root. The Makefile wraps the common flows so you don't have to remember
+which terminal needs which command.
 
-Once this works end-to-end, layer on lead qualification, scoring, post-call
-summary, RM handoff, and the dashboard.
+```bash
+make            # show the menu of every target
+
+make install    # one-time: uv sync + npm install (--legacy-peer-deps)
+cp .env.example .env  &&  $EDITOR .env   # fill in Twilio / ElevenLabs / LLM keys
+make seed       # populate the demo DB so dashboards aren't empty
+
+make dev        # start backend + ngrok + frontend together (one Ctrl+C stops all)
+```
+
+Open http://localhost:3000 once `make dev` is running.
+
+### Available targets
+
+| Target | What it does |
+|---|---|
+| `make help` (default) | Print the menu (you can also run `make` with no argument) |
+| `make install` | `uv sync` for Python, `npm install --legacy-peer-deps` in `ui/` |
+| `make dev` | Start backend (`:8000`) **+** ngrok tunnel (`:4040`) **+** frontend (`:3000`) in parallel. One Ctrl+C tears all three down |
+| `make backend` | Start the FastAPI backend **and** ngrok tunnel together (this is the combo Twilio needs — backend auto-discovers the public URL via the ngrok admin API) |
+| `make api` | Start the FastAPI backend only |
+| `make frontend` | Start the Next.js dev server only |
+| `make ngrok` | Start an ngrok tunnel for an already-running backend |
+| `make seed` | Seed `data/voice_agents.db` with realistic demo data: ~120 leads, ~125 calls across 14 days, ~25 transcripts, growth curve + weekend dips |
+| `make reset-db` | Wipe `data/voice_agents.db` (and WAL files) then reseed from scratch — use this between demos to get reproducible numbers |
+| `make stop` | Kill anything listening on `:8000`, `:3000`, `:4040`, plus any leftover Pipecat / Twilio / ngrok processes |
+| `make status` | Show whether each port is in use, by which process |
+| `make logs` | Tail the most recent backend / dev-server log lines |
+
+### Typical sessions
+
+**Local dev, no phone calls** — landing page + admin console + seeded analytics:
+
+```bash
+make seed          # once
+make api &         # backend in one terminal (no ngrok needed for browser-only flows)
+make frontend      # frontend in another
+```
+
+**End-to-end with a real outbound call** (requires Twilio + verified
+caller-ID + ngrok auth-token configured):
+
+```bash
+make dev           # one command — backend, ngrok, frontend all up
+# in browser: http://localhost:3000 → sign in → /leads → Call
+```
+
+**Reset the demo back to a clean state**:
+
+```bash
+make stop          # if anything is still running
+make reset-db      # fresh DB with the same seed
+make dev
+```
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+|---|---|
+| Voice framework | **Pipecat 1.1** (Twilio Media Streams transport). LiveKit Agents 1.5 retained for `agent console` mic-and-speaker mode. |
+| Telephony | **Twilio Programmable Voice** (free trial works for India outbound to verified caller-IDs) |
+| Public tunnel | **ngrok** — Twilio's WebSocket dials our local `/ws` through it |
+| STT | **ElevenLabs Scribe v2** (multilingual auto-detect across 9 Indian languages) |
+| LLM | **Moonshot Kimi-K2.6** via vLLM at any OpenAI-compatible endpoint, reasoning off (low-latency mode) |
+| TTS | **ElevenLabs `eleven_turbo_v2_5`**, voice configurable per lead |
+| VAD | **Silero VAD (ONNX)** |
+| Backend | **FastAPI** (`api/server.py`) — admin REST API + Pipecat `/ws` bot in one process on `:8000` |
+| Database | **SQLite** at `data/voice_agents.db` — `leads`, `calls`, `transcripts`, `call_events` |
+| Auth | **JWT (HS256)**, single predefined admin from `.env` |
+| Frontend | **Next.js 15 + React 19 + Tailwind + Radix** on `:3000` |
+| Charts | **Recharts** (analytics page) |
+| Audio waveform | **WaveSurfer.js v7** (call detail page) |
+| Python project mgmt | **uv** — every script is a `pyproject.toml` entry point |
+
+---
+
+## Deployment
+
+The marketing site (landing + pricing + contact + login) deploys to
+Vercel as a backend-less static build. See
+[`deliverables/DEPLOY.md`](deliverables/DEPLOY.md) for the full
+walk-through. Short version:
+
+1. Vercel → Import the GitHub repo
+2. **Root Directory**: `ui`
+3. **Env var**: `NEXT_PUBLIC_DEMO_MODE = 1`
+4. Deploy
+
+In demo mode the login screen renders as "by invitation only" and
+authed routes (`/operations`, `/leads`, etc.) bounce back to `/`.
 
 ---
 
@@ -39,191 +130,94 @@ summary, RM handoff, and the dashboard.
 
 ```
 voice-agents/
+├── Makefile                       # ★ developer commands
+├── pyproject.toml                 # uv-managed; entry-points: api, agent, phone, seed-demo…
+├── .env.example                   # placeholders only — real creds live in .env (gitignored)
+│
+├── api/
+│   ├── server.py                  # FastAPI: /api/* + Pipecat /ws + /twiml
+│   └── auth.py                    # JWT issue/verify + require_user dependency
+│
 ├── src/voice_agents/
-│   ├── agent.py                  # LiveKit worker entrypoint + outbound SIP dial
-│   ├── dispatch_call.py          # CLI: dispatch agent into a room with a phone number
-│   ├── conversation_logger.py    # JSON transcript writer
-│   └── prompts.py                # Rupeezy AP system prompt + greeting
-├── .env.example
-├── pyproject.toml                # uv-managed
-└── logs/                         # per-call JSON conversation logs (gitignored)
+│   ├── prompts.py                 # build_system_prompt(name, brand, pronouns, lead_*, …)
+│   ├── db.py                      # SQLite schema + helpers + analytics queries
+│   ├── analyzer.py                # post-call HOT/WARM/COLD scorer (Kimi)
+│   ├── pipecat_logger.py          # transcript writer (JSON + DB)
+│   ├── agent.py                   # LiveKit console-mode entry point
+│   └── phone.py                   # one-shot single-call CLI
+│
+├── scripts/
+│   └── seed_demo_data.py          # populates 120 leads / 125 calls / transcripts
+│
+├── ui/                            # Next.js 15 admin + landing
+│   ├── app/{,login,pricing,contact,operations,leads,calls,analytics,profile}/
+│   ├── components/                # header, shell, ui primitives, pipeline DAG…
+│   └── lib/{api,auth,utils}.ts
+│
+├── deliverables/                  # ★ hackathon artifacts
+│   ├── README.md
+│   ├── DEPLOY.md
+│   ├── loom_script.md
+│   ├── rupeezy_voice_agent_deck.pptx + .pdf
+│   ├── rupeezy_voice_agent_explainer.mp4
+│   └── remotion-explainer/        # source for the explainer video
+│
+├── data/voice_agents.db           # SQLite (gitignored, created on first run)
+└── logs/                          # per-call JSON transcripts (gitignored)
 ```
-
-CLI entry points (defined in `pyproject.toml`):
-
-- `uv run agent` — LiveKit CLI for the worker (subcommands: `dev`, `start`,
-  `console`, `connect`).
-- `uv run dial +91XXXXXXXXXX` — dispatch the worker into a fresh room and
-  trigger the outbound call to that number.
 
 ---
 
-## Prerequisites you must set up once
+## REST endpoints (all `/api/*` require `Authorization: Bearer <jwt>`)
 
-The Python framework is open source, but actually dialing a real phone needs
-two paid-but-free-tier services on top of ElevenLabs / OpenAI.
-
-### 1. LiveKit Cloud project (free tier is fine)
-
-1. Sign up at https://cloud.livekit.io/
-2. Create a project. The dashboard shows a `wss://...livekit.cloud` URL.
-3. Settings → Keys → "Create new key". Save the API Key + Secret.
-4. **Region pinning**: for Indian PSTN traffic LiveKit requires region
-   pinning. In the project settings enable a region close to India
-   (Singapore / Mumbai). See
-   https://docs.livekit.io/sip/region-pinning/
-
-Put the URL / key / secret in `.env`.
-
-### 2. SIP outbound trunk for India PSTN
-
-LiveKit does not own phone numbers — you bring your own trunk. For India
-outbound the cheapest reliable option is **Plivo**:
-
-1. Sign up at https://console.plivo.com/, add a few dollars of credit.
-2. Console → Voice → SIP Trunking → Outbound Trunks → Create.
-   - Authentication: IP ACL or username/password — use username/password
-     since LiveKit terminates anywhere.
-   - Note the SIP domain (e.g. `your-account.outbound.plivo.com`),
-     username, password.
-3. Enable destination "India" on the trunk (Plivo blocks India by default).
-
-Then register the trunk with your LiveKit project. Install the LiveKit CLI:
-
-```bash
-brew install livekit-cli   # or see https://github.com/livekit/livekit-cli
-lk cloud auth              # log in, select your project
-```
-
-Create the outbound trunk in LiveKit pointing at Plivo:
-
-```bash
-cat > /tmp/outbound-trunk.json <<'EOF'
-{
-  "trunk": {
-    "name": "plivo-india",
-    "address": "your-account.outbound.plivo.com",
-    "numbers": ["+1XXXXXXXXXX"],            // your Plivo caller-ID number
-    "auth_username": "PLIVO_SIP_USERNAME",
-    "auth_password": "PLIVO_SIP_PASSWORD"
-  }
-}
-EOF
-
-lk sip outbound create /tmp/outbound-trunk.json
-# → prints: SIP Trunk: ST_xxxxxxxxxxxxx
-```
-
-Copy that `ST_…` ID into `.env` as `SIP_OUTBOUND_TRUNK_ID`.
-
-Telnyx and Twilio work identically — see
-https://docs.livekit.io/sip/trunk-outbound/ for their config blocks.
-
-### 3. ElevenLabs API key
-
-Already provided in `plan.md`. Goes into `.env` as `ELEVENLABS_API_KEY`.
-
-For best Hindi audio quality, browse
-https://elevenlabs.io/app/voice-library, filter by Hindi, copy a voice ID
-into `ELEVENLABS_VOICE_ID`. (The default voice synthesizes Hindi but with a
-detectable English accent.)
-
-### 4. OpenAI API key
-
-`OPENAI_API_KEY` for the LLM. `gpt-4o-mini` is fast and cheap enough for
-phone-call latency. Swap to Groq / Anthropic by editing `agent.py` if you
-prefer.
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/api/auth/login` | `{username, password}` → `{token, profile}` |
+| GET  | `/api/auth/me` | current user from JWT |
+| GET  | `/api/health` | liveness (public) |
+| GET  | `/api/dashboard` | funnel counts |
+| GET  | `/api/analytics` | KPI deltas + funnel + calls/day + score split + language mix + duration-by-score + hour-of-day |
+| GET  | `/api/voices` | curated ElevenLabs voice catalog |
+| GET / POST / DELETE | `/api/leads[/...]` | CRUD + bulk CSV upload |
+| POST | `/api/leads/{id}/call` | trigger outbound dial |
+| POST | `/api/calls/batch?limit=N` | dial N queued leads |
+| GET  | `/api/calls[/{id}]` | list / detail (detail includes transcript + events) |
+| POST | `/api/calls/{id}/analyze` | re-run scorer + summary |
+| GET  | `/api/calls/{id}/recording` | streamed Twilio mp3 with backend auth |
+| GET  | `/twiml` | TwiML returning `<Connect><Stream>` |
+| WS   | `/ws` | Twilio Media Streams bridge |
 
 ---
 
-## Run it
+## Things to know
 
-```bash
-# 1. install (once)
-uv sync
+- **Twilio trial accounts** can only dial verified caller-IDs and play
+  *"You have a trial account, press any key…"* before every call. Press
+  `1` to skip. Top up $20 to remove both restrictions.
+- **Recordings cost money.** Off by default. Flip `TWILIO_RECORD_CALLS=1`
+  in `.env` only when you actively want call audio.
+- **Kimi-K2.6 is a thinking model** — leaving reasoning on adds 1–4 s of
+  latency before the first audible word. We disable it via
+  `LLM_DISABLE_THINKING=1`.
+- **DB is anchored to repo root**, not CWD — so launching `make api`
+  from any directory still hits the same DB.
+- **Per-lead voice + notes** flow into the system prompt at call time.
 
-# 2. configure
-cp .env.example .env
-$EDITOR .env
+## Common gotchas
 
-# 3. terminal A — start the agent worker
-uv run agent dev
-# (use `uv run agent start` for production; `dev` enables hot reload)
-
-# 4. terminal B — dial your phone
-uv run dial +91XXXXXXXXXX --name "Lead"
-```
-
-Your phone rings. Pick up. The agent opens in Hinglish: *"Namaste! Main
-Priya bol rahi hoon Rupeezy se..."* Talk back in Hindi, English, or
-Hinglish — it should handle all three and switch on the fly.
-
-When the call ends, look in `logs/`:
-
-```
-logs/call-919444531354-1714997234.json
-```
-
-Each turn has `ts`, `speaker`, `language`, `text`, `interrupted`. That file
-is the input to the post-call summary / qualification stage in the next
-phase of the project.
+| Symptom | Likely cause | Fix |
+|---|---|---|
+| Lead form does nothing | Stale `.next` cache | `rm -rf ui/.next && make frontend`, or open Incognito |
+| Audio player asks for username/password | Tried to load Twilio recording URL directly | Use `/api/calls/{id}/recording` (already wired in the UI) |
+| Bot connects but is silent | `ELEVENLABS_VOICE_ID` doesn't exist on your account | Set it to a valid voice in `.env` |
+| Twilio error 21219 | Destination not on Verified Caller IDs (trial) | Verify in Twilio console, or upgrade |
+| `chat_template_kwargs` unexpected kwarg | vLLM-specific kwargs need the `extra_body` envelope | Already handled by Pipecat OpenAI service `extra={"extra_body":{...}}` |
+| `make dev` blocked on port 8000 | Another service is listening | `make stop` then `make dev` |
 
 ---
 
-## Quick sanity checks without a phone
+## Hackathon authorship
 
-Before burning Plivo credit, you can validate the agent locally.
-
-**Console mode** — talks to your laptop mic/speakers, no telephony involved:
-
-```bash
-uv run agent console
-```
-
-**LiveKit Agents Playground** — browser-based test harness:
-
-```bash
-uv run agent dev
-# then open https://agents-playground.livekit.io and connect to your project
-```
-
-Both modes run the exact same `entrypoint`, just without the SIP dial step
-(no `phone_number` in metadata). Use this to verify the prompt, voice, and
-language behavior before placing a real call.
-
----
-
-## What's NOT here yet (next phases)
-
-This MVP intentionally stops at "phone rings, conversation happens, log
-gets written." Still to build:
-
-- Lead qualification function tools — score Hot/Warm/Cold from conversation
-  signals, hand off to RM.
-- Post-call summary generation (LLM over the JSON log).
-- WhatsApp follow-up dispatch for Warm leads.
-- RM dashboard with funnel + transcripts.
-- Sarvam STT/TTS swap-in for regional languages (Tamil, Telugu, Marathi,
-  Gujarati, Bengali) — ElevenLabs covers Hindi/Tamil but Sarvam is stronger
-  on the others. Replace the `stt=` / `tts=` lines in `agent.py`.
-
-See `hack-questions.md` for the full theme spec.
-
----
-
-## Troubleshooting
-
-**"SIP_OUTBOUND_TRUNK_ID is not set"** — register a trunk with
-`lk sip outbound create` (see above) and put the ID in `.env`.
-
-**Call connects but agent doesn't speak** — check the agent worker terminal
-for ElevenLabs / OpenAI auth errors. Most common cause: missing API key in
-`.env`.
-
-**Plivo `403` / `503` SIP status on dial** — destination India not enabled
-on the trunk, or the caller-ID number isn't in the trunk's `numbers` list,
-or your LiveKit project isn't region-pinned.
-
-**STT picks the wrong language** — leave `language_code` unset (current
-default) so Scribe auto-detects each turn. Forcing `hi` will mistranscribe
-English replies.
+Team: **PitchPerfect**. Theme 7 — Rupeezy AP partner program is the launch
+customer. See [`hack-questions.md`](hack-questions.md) for the original
+brief and [`tech.md`](tech.md) for the deeper architecture write-up.
