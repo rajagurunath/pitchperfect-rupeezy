@@ -28,9 +28,9 @@ const jetMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Rupeezy AP Voice Agent — Calls inbound leads in 9 Indian languages",
+  title: "PitchPerfect — Voice AI for partner programs, in 9 Indian languages",
   description:
-    "An AI voice agent that auto-dials inbound AP partner leads, speaks 9 Indian languages natively, handles the 5 core objections, and scores every call HOT/WARM/COLD for the human RM.",
+    "PitchPerfect builds voice AI for partner-led acquisition. We auto-dial inbound leads, speak 9 Indian languages natively, handle the core objections, and hand every call back to your RM team scored HOT / WARM / COLD.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

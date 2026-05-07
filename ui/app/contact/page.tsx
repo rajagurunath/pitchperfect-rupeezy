@@ -62,10 +62,10 @@ function ContactInner() {
 
   function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const subject = `Rupeezy AP Agent — ${tierLabel || "Demo"} request from ${company || name}`;
+    const subject = `PitchPerfect — ${tierLabel || "Demo"} request from ${company || name}`;
     const body =
-      `Hi Rupeezy team,\n\n` +
-      `I'd like to talk to sales about Rupeezy AP Agent.\n\n` +
+      `Hi PitchPerfect team,\n\n` +
+      `I'd like to talk to sales about PitchPerfect.\n\n` +
       `Name:     ${name}\n` +
       `Email:    ${email}\n` +
       `Company:  ${company}\n` +
@@ -76,7 +76,7 @@ function ContactInner() {
       (message ? `Notes:\n${message}\n\n` : "") +
       `Thanks!`;
     window.location.href =
-      `mailto:hello@rupeezy.com?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      `mailto:hello@pitchperfect.ai?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
   }
 
   return (
@@ -132,9 +132,9 @@ function ContactInner() {
           </div>
 
           <div className="mt-10 pt-7 border-t border-ink-line space-y-3 text-sm">
-            <a href="mailto:hello@rupeezy.com" className="flex items-center gap-3 text-ink-text hover:text-accent transition">
+            <a href="mailto:hello@pitchperfect.ai" className="flex items-center gap-3 text-ink-text hover:text-accent transition">
               <Mail size={16} className="text-accent" />
-              hello@rupeezy.com
+              hello@pitchperfect.ai
             </a>
             <a href="tel:+919999999999" className="flex items-center gap-3 text-ink-text hover:text-accent transition">
               <Phone size={16} className="text-accent" />
@@ -173,7 +173,7 @@ function ContactInner() {
               <Field label="Company">
                 <input
                   value={company} onChange={(e)=>setCompany(e.target.value)}
-                  placeholder="Rupeezy Holdings"
+                  placeholder="Acme Securities"
                   className="form-input"
                 />
               </Field>
@@ -229,7 +229,7 @@ function ContactInner() {
           </form>
 
           <div className="mt-5 text-center text-[11px] text-ink-mute">
-            Prefer email? <a href="mailto:hello@rupeezy.com" className="text-accent hover:underline">hello@rupeezy.com</a>
+            Prefer email? <a href="mailto:hello@pitchperfect.ai" className="text-accent hover:underline">hello@pitchperfect.ai</a>
           </div>
         </div>
       </div>
@@ -279,10 +279,10 @@ function Nav() {
       <div className="mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3 group">
           <div className="relative h-9 w-9 rounded-lg bg-accent/15 ring-1 ring-accent/40 flex items-center justify-center">
-            <span className="font-serif italic text-accent text-lg leading-none">R</span>
+            <span className="font-serif italic text-accent text-lg leading-none">P</span>
           </div>
           <div className="hidden sm:block">
-            <div className="text-sm font-semibold tracking-tight">Rupeezy AP Agent</div>
+            <div className="text-sm font-semibold tracking-tight">PitchPerfect</div>
             <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
           </div>
         </Link>
@@ -301,7 +301,7 @@ function Footer() {
   return (
     <footer className="border-t border-ink-line">
       <div className="mx-auto max-w-7xl px-6 py-8 flex flex-col md:flex-row md:items-center md:justify-between gap-3 text-[11px] text-ink-mute">
-        <div>© {new Date().getFullYear()} Rupeezy. All rights reserved.</div>
+        <div>© {new Date().getFullYear()} PitchPerfect. All rights reserved.</div>
         <div className="flex items-center gap-5">
           <a href="#" className="hover:text-ink-text transition">Privacy</a>
           <a href="#" className="hover:text-ink-text transition">Terms</a>

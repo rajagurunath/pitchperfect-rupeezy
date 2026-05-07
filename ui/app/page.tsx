@@ -1,9 +1,10 @@
 "use client";
 
-// Public marketing site for Rupeezy AP Agent — voice AI for partner-program
+// Public marketing site for PitchPerfect — voice AI for partner-program
 // outreach. Editorial dark + electric-teal aesthetic; product-led copy that
 // leads with outcomes (conversion lift, language reach, RM productivity)
-// rather than implementation details.
+// rather than implementation details. Rupeezy is featured as the launch
+// customer in the trust strip, dial card, and conversation transcript.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -112,12 +113,12 @@ function LandingNav({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }
       <div className="mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3 group">
           <div className="relative h-9 w-9 rounded-lg bg-accent/15 ring-1 ring-accent/40 flex items-center justify-center">
-            <span className="font-serif italic text-accent text-lg leading-none">R</span>
+            <span className="font-serif italic text-accent text-lg leading-none">P</span>
             <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent animate-ping-soft" />
             <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent" />
           </div>
           <div className="hidden sm:block">
-            <div className="text-sm font-semibold tracking-tight">Rupeezy AP Agent</div>
+            <div className="text-sm font-semibold tracking-tight">PitchPerfect</div>
             <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
           </div>
         </Link>
@@ -331,7 +332,7 @@ function Waveform() {
 // ---------------------------------------------------------------------------
 
 function TrustStrip() {
-  const items = [
+  const industries = [
     "Stockbroking",
     "Wealth & PMS",
     "Insurance",
@@ -340,16 +341,36 @@ function TrustStrip() {
   ];
   return (
     <section className="relative -mt-12 pb-6">
-      <div className="mx-auto max-w-7xl px-6 text-center">
-        <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-6">
-          BUILT FOR PARTNER-LED ACQUISITION IN
-        </div>
-        <div className="flex items-center justify-center gap-8 md:gap-14 flex-wrap">
-          {items.map((it) => (
-            <div key={it} className="font-serif text-xl md:text-2xl text-ink-mute hover:text-ink-text transition">
-              {it}
+      <div className="mx-auto max-w-7xl px-6">
+        {/* Featured customer card */}
+        <div className="mb-12 flex items-center justify-center">
+          <div className="inline-flex items-center gap-5 rounded-full border border-accent/30 bg-accent/5 px-6 py-3.5 backdrop-blur">
+            <div className="flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-50 animate-ping-soft" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
+              </span>
+              <span className="text-[10px] tracking-[0.22em] text-accent font-semibold">LIVE WITH</span>
             </div>
-          ))}
+            <div className="font-serif text-2xl text-ink-text font-medium">Rupeezy</div>
+            <div className="hidden sm:block h-5 w-px bg-ink-line" />
+            <div className="hidden sm:block text-xs text-ink-mute">
+              powering AP partner outreach in 9 Indian languages
+            </div>
+          </div>
+        </div>
+
+        <div className="text-center">
+          <div className="text-[11px] tracking-[0.22em] text-ink-mute font-semibold mb-6">
+            BUILT FOR PARTNER-LED ACQUISITION IN
+          </div>
+          <div className="flex items-center justify-center gap-8 md:gap-14 flex-wrap">
+            {industries.map((it) => (
+              <div key={it} className="font-serif text-xl md:text-2xl text-ink-mute hover:text-ink-text transition">
+                {it}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </section>
@@ -829,10 +850,10 @@ function Footer() {
         <div className="md:col-span-5">
           <div className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-lg bg-accent/15 ring-1 ring-accent/40 flex items-center justify-center">
-              <span className="font-serif italic text-accent">R</span>
+              <span className="font-serif italic text-accent">P</span>
             </div>
             <div>
-              <div className="font-semibold tracking-tight">Rupeezy AP Agent</div>
+              <div className="font-semibold tracking-tight">PitchPerfect</div>
               <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
             </div>
           </div>
@@ -840,6 +861,10 @@ function Footer() {
             Reach every inbound lead, in any of nine Indian languages, while
             they&apos;re still warm — and let your RM team spend their time on the
             ones that actually close.
+          </p>
+          <p className="mt-4 text-[11px] text-ink-mute leading-relaxed max-w-sm">
+            Currently powering <span className="text-accent">Rupeezy&apos;s AP partner program</span>
+            {" "}in production — built in India, for India-first fintech teams.
           </p>
         </div>
 
@@ -875,7 +900,7 @@ function Footer() {
 
       <div className="border-t border-ink-line">
         <div className="mx-auto max-w-7xl px-6 py-5 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-[11px] text-ink-mute">
-          <div>© {new Date().getFullYear()} Rupeezy. All rights reserved.</div>
+          <div>© {new Date().getFullYear()} PitchPerfect. All rights reserved.</div>
           <div className="flex items-center gap-5">
             <a href="#" className="hover:text-ink-text transition">Privacy</a>
             <a href="#" className="hover:text-ink-text transition">Terms</a>

@@ -169,12 +169,12 @@ function Nav() {
       <div className="mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-3 group">
           <div className="relative h-9 w-9 rounded-lg bg-accent/15 ring-1 ring-accent/40 flex items-center justify-center">
-            <span className="font-serif italic text-accent text-lg leading-none">R</span>
+            <span className="font-serif italic text-accent text-lg leading-none">P</span>
             <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent animate-ping-soft" />
             <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-accent" />
           </div>
           <div className="hidden sm:block">
-            <div className="text-sm font-semibold tracking-tight">Rupeezy AP Agent</div>
+            <div className="text-sm font-semibold tracking-tight">PitchPerfect</div>
             <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
           </div>
         </Link>
@@ -422,11 +422,11 @@ function Footer() {
             <span className="font-serif italic text-accent">R</span>
           </div>
           <div className="text-sm">
-            <div className="font-semibold tracking-tight">Rupeezy AP Agent</div>
+            <div className="font-semibold tracking-tight">PitchPerfect</div>
             <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
           </div>
         </div>
-        <div className="text-[11px] text-ink-mute">© {new Date().getFullYear()} Rupeezy. All rights reserved.</div>
+        <div className="text-[11px] text-ink-mute">© {new Date().getFullYear()} PitchPerfect. All rights reserved.</div>
       </div>
     </footer>
   );

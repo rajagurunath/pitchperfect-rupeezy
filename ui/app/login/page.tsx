@@ -61,10 +61,10 @@ export default function LoginPage() {
         <div className="mx-auto max-w-7xl px-6 py-5 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-3">
             <div className="h-9 w-9 rounded-lg bg-accent/15 ring-1 ring-accent/40 flex items-center justify-center">
-              <span className="font-serif italic text-accent text-lg leading-none">R</span>
+              <span className="font-serif italic text-accent text-lg leading-none">P</span>
             </div>
             <div className="hidden sm:block">
-              <div className="text-sm font-semibold tracking-tight">Rupeezy AP Agent</div>
+              <div className="text-sm font-semibold tracking-tight">PitchPerfect</div>
               <div className="text-[11px] text-ink-mute tracking-wider">Voice AI for partner programs</div>
             </div>
           </Link>
@@ -82,7 +82,7 @@ export default function LoginPage() {
               CUSTOMER CONSOLE
             </div>
             <h1 className="font-serif font-medium text-3xl md:text-4xl leading-tight tracking-tight">
-              Sign in to your <em className="font-serif italic font-light text-accent">Rupeezy</em> console.
+              Sign in to your <em className="font-serif italic font-light text-accent">PitchPerfect</em> console.
             </h1>
             <p className="mt-3 text-sm text-ink-mute">
               {DEMO_MODE

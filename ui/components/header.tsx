@@ -18,11 +18,11 @@ export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
     <header className="mb-10 flex items-center justify-between">
       <Link href={isAuthed ? "/operations" : "/"} className="flex items-center gap-3 group">
         <div className="h-8 w-8 rounded-lg bg-accent/20 ring-1 ring-accent/40 flex items-center justify-center">
-          <span className="text-accent font-bold text-sm">R</span>
+          <span className="text-accent font-bold text-sm">P</span>
         </div>
         <div>
-          <div className="text-sm font-semibold tracking-tight">Rupeezy AP Agent</div>
-          <div className="text-[11px] text-ink-mute">Admin console</div>
+          <div className="text-sm font-semibold tracking-tight">PitchPerfect</div>
+          <div className="text-[11px] text-ink-mute">Admin console · Rupeezy</div>
         </div>
       </Link>
 
