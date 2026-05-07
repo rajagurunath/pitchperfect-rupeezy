@@ -1,0 +1,42 @@
+[project]
+name = "voice-agents"
+version = "0.1.0"
+description = "Rupeezy AP voice agent — LiveKit + ElevenLabs MVP that calls Indian leads in Hindi/English/Hinglish."
+authors = [
+    { name = "rajagurunath-io", email = "gurunath@io.net" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.136.1",
+    "httpx>=0.28.1",
+    "livekit-agents[silero,turn-detector]>=1.0",
+    "livekit-api>=1.1.0",
+    "livekit-plugins-elevenlabs>=1.5.8",
+    "livekit-plugins-noise-cancellation>=0.2.5",
+    "livekit-plugins-openai>=1.5.8",
+    "pipecat-ai[daily,elevenlabs,openai,silero,websocket]>=0.0.50",
+    "python-dotenv>=1.2.2",
+    "python-multipart>=0.0.27",
+    "requests>=2.33.1",
+    "twilio>=9.10.6",
+    "uvicorn[standard]>=0.46.0",
+]
+
+[project.scripts]
+agent = "voice_agents.agent:main"
+dial = "voice_agents.dispatch_call:main"
+dial-daily = "voice_agents.dial_daily:main"
+pipecat-bot = "voice_agents.pipecat_bot:main"
+twilio-bot = "voice_agents.twilio_bot:main"
+twilio-dial = "voice_agents.twilio_dial:main"
+phone = "voice_agents.phone:main"
+api = "api.server:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Ship both src/voice_agents and the top-level api package so `uv run api`
+# and `from api.server import …` both work.
+[tool.hatch.build.targets.wheel]
+packages = ["src/voice_agents", "api"]
