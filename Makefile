@@ -8,10 +8,12 @@
 # Run `make` (or `make help`) to see the menu.
 
 SHELL      := /bin/bash
-PORT_API   := 8000
-PORT_UI    := 3000
-PORT_NGROK := 4040
-UV         := uv run
+PORT_API    := 8000
+PORT_UI     := 3000
+PORT_NGROK  := 4040
+PORT_MLFLOW := 5001
+UV          := uv run
+MLFLOW_URI  := file://$(CURDIR)/mlruns
 
 # ANSI colours for the help banner
 BOLD := \033[1m
@@ -22,7 +24,7 @@ RST  := \033[0m
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install dev backend api frontend ngrok seed reset-db \
+.PHONY: help install dev backend api frontend ngrok mlflow seed reset-db \
         stop status logs clean
 
 help:
@@ -36,7 +38,8 @@ help:
 	@printf "  $(CYN)make backend$(RST)        $(DIM)— start FastAPI on :$(PORT_API) AND ngrok tunnel together$(RST)\n"
 	@printf "  $(CYN)make api$(RST)            $(DIM)— start FastAPI on :$(PORT_API) (no ngrok)$(RST)\n"
 	@printf "  $(CYN)make frontend$(RST)       $(DIM)— start Next.js dev server on :$(PORT_UI)$(RST)\n"
-	@printf "  $(CYN)make ngrok$(RST)          $(DIM)— start ngrok tunnel for :$(PORT_API) only$(RST)\n\n"
+	@printf "  $(CYN)make ngrok$(RST)          $(DIM)— start ngrok tunnel for :$(PORT_API) only$(RST)\n"
+	@printf "  $(CYN)make mlflow$(RST)         $(DIM)— start MLflow UI on :$(PORT_MLFLOW) (view per-call runs)$(RST)\n\n"
 	@printf "$(DIM)Database$(RST)\n"
 	@printf "  $(CYN)make seed$(RST)           $(DIM)— seed demo data into data/voice_agents.db$(RST)\n"
 	@printf "  $(CYN)make reset-db$(RST)       $(DIM)— wipe data/voice_agents.db and reseed from scratch$(RST)\n\n"
@@ -65,11 +68,14 @@ install:
 # ---------------------------------------------------------------------------
 
 dev:
-	@echo "→ starting backend + ngrok + frontend (Ctrl+C to stop all)"
+	@echo "→ starting backend + ngrok + frontend + mlflow (Ctrl+C to stop all)"
+	@echo "  API     :$(PORT_API)    UI :$(PORT_UI)    ngrok :$(PORT_NGROK)    mlflow :$(PORT_MLFLOW)"
+	@mkdir -p mlruns
 	@trap 'echo; echo "stopping..."; kill 0' INT TERM; \
 	$(UV) api & \
 	(sleep 2 && ngrok http $(PORT_API) --log=stdout) & \
 	(sleep 2 && cd ui && npm run dev) & \
+	(sleep 2 && $(UV) mlflow ui --backend-store-uri "$(MLFLOW_URI)" --port $(PORT_MLFLOW)) & \
 	wait
 
 # ---------------------------------------------------------------------------
@@ -106,6 +112,17 @@ ngrok:
 	ngrok http $(PORT_API)
 
 # ---------------------------------------------------------------------------
+# MLflow UI — view per-call runs (one run per outbound call), with params
+# (lead, provider config), metrics (interest_level, follow_up_priority,
+# duration), tags (score, sentiment), artifacts (transcript.json, analysis.json).
+# ---------------------------------------------------------------------------
+
+mlflow:
+	@echo "→ MLflow UI on :$(PORT_MLFLOW)  →  http://localhost:$(PORT_MLFLOW)"
+	@mkdir -p mlruns
+	$(UV) mlflow ui --backend-store-uri "$(MLFLOW_URI)" --port $(PORT_MLFLOW)
+
+# ---------------------------------------------------------------------------
 # Database / demo data
 # ---------------------------------------------------------------------------
 
@@ -123,16 +140,16 @@ reset-db:
 # ---------------------------------------------------------------------------
 
 stop:
-	@echo "→ stopping anything on :$(PORT_API) :$(PORT_UI) :$(PORT_NGROK)"
-	-@for port in $(PORT_API) $(PORT_UI) $(PORT_NGROK); do \
+	@echo "→ stopping anything on :$(PORT_API) :$(PORT_UI) :$(PORT_NGROK) :$(PORT_MLFLOW)"
+	-@for port in $(PORT_API) $(PORT_UI) $(PORT_NGROK) $(PORT_MLFLOW); do \
 	  pids=$$(lsof -ti :$$port 2>/dev/null); \
 	  [ -n "$$pids" ] && kill -9 $$pids 2>/dev/null || true; \
 	done
-	-@pkill -9 -f "uvicorn|api\.server|voice_agents\.api|next dev|next-server|ngrok http|twilio_bot" 2>/dev/null || true
+	-@pkill -9 -f "uvicorn|api\.server|voice_agents\.api|next dev|next-server|ngrok http|twilio_bot|mlflow.*ui|gunicorn.*mlflow" 2>/dev/null || true
 	@echo "→ stopped"
 
 status:
-	@for p in $(PORT_API) $(PORT_UI) $(PORT_NGROK); do \
+	@for p in $(PORT_API) $(PORT_UI) $(PORT_NGROK) $(PORT_MLFLOW); do \
 	  who=$$(lsof -i :$$p -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $$1, $$2}'); \
 	  if [ -n "$$who" ]; then \
 	    printf "  $(GRN)● :%s$(RST)  in use by  %s\n" "$$p" "$$who"; \

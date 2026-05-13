@@ -62,8 +62,14 @@ class CallTracker:
             return
         try:
             import mlflow  # lazy import — not required for the rest of the app
+            # Anchor to repo root so `mlflow ui` (started from anywhere) and
+            # the API server (CWD might differ from repo root) write to the
+            # same store. Override via MLFLOW_TRACKING_URI in .env.
+            default_uri = "file://" + str(
+                Path(__file__).resolve().parents[2] / "mlruns"
+            )
             mlflow.set_tracking_uri(
-                os.getenv("MLFLOW_TRACKING_URI", "file:///./mlruns")
+                os.getenv("MLFLOW_TRACKING_URI", default_uri)
             )
             mlflow.set_experiment(_EXPERIMENT)
             self._run = mlflow.start_run(
