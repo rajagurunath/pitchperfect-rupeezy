@@ -99,6 +99,29 @@ app.add_middleware(
 )
 
 
+# Verbose 422 logger — for the simulate WebRTC routes only — so we can see
+# the actual body the SmallWebRTC client is sending. Without this, FastAPI
+# just emits "422 Unprocessable Entity" with no detail in the log.
+from fastapi.exceptions import RequestValidationError as _RVE
+
+
+@app.exception_handler(_RVE)
+async def _log_validation_errors(request: Request, exc: _RVE):
+    from fastapi.responses import JSONResponse
+    if "/api/simulate" in request.url.path:
+        try:
+            body = await request.body()
+            log.error(
+                "422 on %s %s — validation errors: %s — raw body: %s",
+                request.method, request.url.path, exc.errors(),
+                body.decode("utf-8", errors="replace")[:1500],
+            )
+        except Exception as e:
+            log.error("422 on %s %s (could not read body: %s)",
+                      request.method, request.url.path, e)
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
 # ============================================================================
 # Lead + call endpoints
 # ============================================================================
@@ -388,6 +411,423 @@ async def stream_recording(call_id: str, request: Request) -> StreamingResponse:
     return StreamingResponse(gen(), status_code=upstream.status_code,
                              headers=pass_through,
                              media_type=pass_through["Content-Type"])
+
+
+# ============================================================================
+# Simulator — text + voice (no real call placed)
+# ============================================================================
+# The Campaign Studio's preview surface. RM plays the lead, agent uses the
+# exact same prompts.py + LLM + qualification rules that production calls
+# use. Two transports share these prompts:
+#   * text  → /api/simulate/text  (stateless POST; fastest dev loop)
+#   * voice → /api/simulate/voice (Pipecat SmallWebRTCTransport; same
+#             STT/LLM/TTS pipeline the Twilio path runs, but talked to
+#             from the browser via voice-ui-kit)
+
+class SimulatePersona(BaseModel):
+    agent_name: str | None = None
+    brand: str | None = None
+    pronouns: str | None = None
+    language_pref: str | None = None        # e.g. "hi-IN", "ta-IN", "en-IN"
+    voice_id: str | None = None             # Sarvam speaker name
+    lead_name: str | None = None
+    lead_notes: str | None = None
+    opener_variant: str | None = None       # benefits | social_proof | question
+    custom_opener: str | None = None        # overrides opener_variant if set
+
+
+class SimulateTextTurn(BaseModel):
+    role: str                                # "agent" | "lead"
+    content: str
+
+
+class SimulateTextIn(BaseModel):
+    persona: SimulatePersona = Field(default_factory=SimulatePersona)
+    history: list[SimulateTextTurn] = Field(default_factory=list)
+    message: str | None = None               # the RM-as-lead reply; null = ask for opener
+
+
+_OPENER_VARIANT_HINTS = {
+    "benefits": (
+        "Open by leading with the strongest concrete benefit: 100% brokerage "
+        "share AND daily payouts via the RISE Portal. One sentence hook."
+    ),
+    "social_proof": (
+        "Open by mentioning that 1000+ APs already partner with Rupeezy and "
+        "earn daily payouts. Make it sound like the lead is missing out."
+    ),
+    "question": (
+        "Open with a curiosity question — ask the lead what brokerage share "
+        "they're getting today and pause for their answer before pitching."
+    ),
+}
+
+
+def _persona_system_prompt(p: SimulatePersona) -> str:
+    """Render the agent system prompt for a simulation, layering opener
+    variant / custom opener onto the standard prompts.py template."""
+    base = build_system_prompt(
+        agent_name=p.agent_name,
+        brand=p.brand,
+        pronouns=p.pronouns,
+        lead_name=p.lead_name,
+        lead_notes=p.lead_notes,
+    )
+    extras: list[str] = []
+    if p.custom_opener:
+        extras.append(
+            "Use this exact opener (or a very close paraphrase in the lead's "
+            f"language) for your first turn:\n\n```\n{p.custom_opener.strip()}\n```"
+        )
+    elif p.opener_variant and p.opener_variant in _OPENER_VARIANT_HINTS:
+        extras.append(
+            f"Opener style for this campaign: {_OPENER_VARIANT_HINTS[p.opener_variant]}"
+        )
+    if p.language_pref:
+        extras.append(
+            f"The lead's preferred language is **{p.language_pref}**. "
+            "Open in that language. Switch languages mid-call only if the "
+            "lead clearly responds in another."
+        )
+    extras.append(
+        "IMPORTANT — SIMULATION MODE: a Relationship Manager is previewing "
+        "this script before activating the campaign. Stay in character as "
+        "the agent. Keep replies short (1–3 sentences)."
+    )
+    return base + "\n# CAMPAIGN OVERRIDES\n\n" + "\n\n".join(extras) + "\n"
+
+
+@app.post("/api/simulate/text")
+async def simulate_text(
+    payload: SimulateTextIn,
+    _user: dict = Depends(require_user),
+) -> dict[str, Any]:
+    """One text turn against the configured agent. Stateless — the client
+    sends back the full history each call. Returns ``{reply, language}``."""
+    import httpx
+    base_url = (os.getenv("OPENAI_BASE_URL", "") or "https://api.openai.com/v1").rstrip("/")
+    model = os.getenv("OPENAI_LLM_MODEL", "gpt-4o-mini")
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        raise HTTPException(500, "OPENAI_API_KEY not set")
+
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": _persona_system_prompt(payload.persona)},
+    ]
+    for turn in payload.history:
+        role = "assistant" if turn.role == "agent" else "user"
+        messages.append({"role": role, "content": turn.content})
+    if payload.message is not None and payload.message.strip():
+        messages.append({"role": "user", "content": payload.message.strip()})
+    elif not payload.history:
+        # First turn — ask the agent to deliver the opener.
+        messages.append({
+            "role": "user",
+            "content": "[SIMULATION START] Begin the call now with your opener.",
+        })
+
+    req: dict[str, Any] = {
+        "model": model,
+        "messages": messages,
+        "temperature": 0.7,
+        # Headroom: Kimi sometimes ignores the thinking-off toggle and burns
+        # the budget on reasoning before emitting any content.
+        "max_tokens": int(os.getenv("SIMULATE_MAX_TOKENS", "2048")),
+    }
+    if os.getenv("LLM_DISABLE_THINKING", "1") == "1":
+        # Send both spellings — Moonshot vLLM builds disagree on which key
+        # actually disables the chain-of-thought template.
+        req["extra_body"] = {
+            "chat_template_kwargs": {"thinking": False, "enable_thinking": False},
+            "enable_thinking": False,
+        }
+
+    async with httpx.AsyncClient(timeout=120) as client:
+        r = await client.post(
+            f"{base_url}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}",
+                     "Content-Type": "application/json"},
+            json=req,
+        )
+    if r.status_code != 200:
+        log.error("simulate LLM failed: %d %s", r.status_code, r.text[:300])
+        raise HTTPException(502, f"upstream LLM returned {r.status_code}")
+    body = r.json()
+    msg = body["choices"][0]["message"]
+    reply = (msg.get("content") or "").strip()
+    if not reply:
+        # Some vLLM builds split reasoning model output: chain-of-thought in
+        # reasoning_content, final answer in content. Strip <think> if present.
+        import re as _re
+        reasoning = (msg.get("reasoning_content") or "").strip()
+        cleaned = _re.sub(r"<think>.*?</think>", "", reasoning, flags=_re.DOTALL).strip()
+        reply = cleaned
+    if not reply:
+        finish = body["choices"][0].get("finish_reason")
+        log.error(
+            "simulate: empty reply (finish=%s, msg_keys=%s, content_len=%d, reasoning_len=%d)",
+            finish, sorted(msg.keys()),
+            len(msg.get("content") or ""),
+            len(msg.get("reasoning_content") or ""),
+        )
+        raise HTTPException(502, "LLM returned empty content")
+    return {
+        "reply": reply,
+        "language": payload.persona.language_pref,
+        "model": model,
+    }
+
+
+# ---- voice simulator (Pipecat SmallWebRTC) ---------------------------------
+# One process-wide request handler keeps a map of pc_id → connection. We
+# accept the SDP offer here, kick off the full STT→LLM→TTS pipeline against
+# the new connection, then return the SDP answer. The browser uses
+# voice-ui-kit's SmallWebRTCTransport client.
+
+from pipecat.transports.base_transport import TransportParams
+from pipecat.transports.smallwebrtc.transport import SmallWebRTCTransport
+from pipecat.transports.smallwebrtc.request_handler import (
+    SmallWebRTCRequest,
+    SmallWebRTCPatchRequest,
+    SmallWebRTCRequestHandler,
+    ConnectionMode,
+)
+
+_webrtc_handler = SmallWebRTCRequestHandler(
+    connection_mode=ConnectionMode.MULTIPLE,
+)
+
+# Connection-id → persona override (kept until the connection closes). Persona
+# arrives via the offer's `request_data` so we don't need a second hop.
+_webrtc_personas: dict[str, dict[str, Any]] = {}
+
+
+async def _start_webrtc_pipeline(
+    webrtc_connection: Any,
+    persona: SimulatePersona,
+) -> None:
+    """Build the same STT→LLM→TTS pipeline used for Twilio calls, but on a
+    SmallWebRTC transport. Audio is 16kHz both ways (WebRTC default for the
+    browser is 48kHz; Pipecat resamples internally)."""
+    lead_lang = _to_language(persona.language_pref)
+
+    transport = SmallWebRTCTransport(
+        webrtc_connection=webrtc_connection,
+        params=TransportParams(
+            audio_in_enabled=True,
+            audio_out_enabled=True,
+            audio_in_sample_rate=16000,
+            audio_out_sample_rate=16000,
+        ),
+    )
+
+    stt, stt_cleanup = build_stt(lead_lang)
+
+    llm_extra: dict[str, Any] = {}
+    if os.getenv("LLM_DISABLE_THINKING", "1") == "1":
+        llm_extra["extra_body"] = {"chat_template_kwargs": {"thinking": False}}
+    llm = OpenAILLMService(
+        model=os.getenv("OPENAI_LLM_MODEL", "moonshotai/Kimi-K2.6"),
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_BASE_URL") or None,
+        params=BaseOpenAILLMService.InputParams(extra=llm_extra),
+    )
+
+    speaker = (persona.voice_id or "").strip() or default_speaker()
+    tts = build_tts(speaker, lead_lang)
+
+    system_prompt = _persona_system_prompt(persona)
+    greeting = build_greeting_instruction(
+        agent_name=persona.agent_name, brand=persona.brand,
+    )
+
+    context = LLMContext(
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "system", "content": greeting},
+        ]
+    )
+    context_aggregator = LLMContextAggregatorPair(context)
+
+    # Browser sim doesn't write to the DB or to mlflow — it's a preview. We
+    # still buffer the conversation in-memory to mirror it back over the
+    # data channel for the side-by-side transcript panel.
+    convo_log = ConversationLog(
+        log_dir=LOG_DIR,
+        room_name=f"sim-{webrtc_connection.pc_id[:8]}",
+        phone_number=None,
+        call_id=None,
+    )
+    user_log = UserTranscriptLogger(convo_log)
+    assistant_log = AssistantTranscriptLogger(convo_log)
+
+    pipeline = Pipeline([
+        transport.input(),
+        VADProcessor(vad_analyzer=SileroVADAnalyzer()),
+        stt,
+        user_log,
+        context_aggregator.user(),
+        llm,
+        assistant_log,
+        tts,
+        transport.output(),
+        context_aggregator.assistant(),
+    ])
+
+    task = PipelineTask(
+        pipeline,
+        params=PipelineParams(
+            allow_interruptions=True,
+            audio_in_sample_rate=16000,
+            audio_out_sample_rate=16000,
+        ),
+    )
+
+    @transport.event_handler("on_client_connected")
+    async def _on_connected(_t, _c):
+        log.info("sim-webrtc: client connected (pc_id=%s)", webrtc_connection.pc_id)
+        await task.queue_frames([LLMRunFrame()])
+
+    @transport.event_handler("on_client_disconnected")
+    async def _on_disconnected(_t, _c):
+        log.info("sim-webrtc: client disconnected (pc_id=%s)", webrtc_connection.pc_id)
+        await task.queue_frame(EndFrame())
+
+    runner = PipelineRunner(handle_sigint=False)
+    # Run the pipeline in the background; the request handler returns the
+    # SDP answer immediately so the browser can finish ICE.
+    async def _run() -> None:
+        try:
+            await runner.run(task)
+        except Exception as exc:
+            log.exception("sim-webrtc pipeline crashed: %s", exc)
+        finally:
+            try:
+                await stt_cleanup()
+            except Exception:
+                pass
+            _webrtc_personas.pop(webrtc_connection.pc_id, None)
+
+    asyncio.create_task(_run())
+
+
+class _OfferRequestData(BaseModel):
+    """The `requestData` envelope the SmallWebRTCTransport client wraps any
+    custom session data in (we put the campaign persona here)."""
+    persona: SimulatePersona | None = None
+
+
+class SimulateVoiceOffer(BaseModel):
+    """Matches the exact body shape the @pipecat-ai/small-webrtc-transport
+    client sends: `{sdp, type, pc_id, restart_pc, requestData}`."""
+    sdp: str
+    type: str
+    pc_id: str | None = None
+    restart_pc: bool | None = None
+    requestData: _OfferRequestData | None = None
+
+
+# Trickle-ICE candidate as the SDK sends it (snake_case in the inner objects).
+class _IceCandidatePayload(BaseModel):
+    candidate: str
+    sdp_mid: str | None = None
+    sdp_mline_index: int | None = None
+
+
+class SimulateVoicePatch(BaseModel):
+    pc_id: str
+    candidates: list[_IceCandidatePayload]
+
+
+@app.post("/api/simulate/voice/offer")
+async def simulate_voice_offer(
+    request: Request,
+    _user: dict = Depends(require_user),
+) -> dict[str, str] | None:
+    """Browser sends an SDP offer + persona; we spin up a Pipecat pipeline
+    bound to a fresh SmallWebRTCConnection and return the SDP answer.
+
+    We parse the body manually because the SDK's fetch sometimes omits a
+    proper Content-Type header (or it gets stripped by intermediaries),
+    which makes FastAPI deliver the body as raw bytes and Pydantic 422s.
+    """
+    raw = await request.body()
+    try:
+        body = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(400, f"body must be JSON: {exc!s}")
+    try:
+        offer = SimulateVoiceOffer.model_validate(body)
+    except Exception as exc:
+        raise HTTPException(422, f"bad offer payload: {exc!s}")
+
+    persona = (offer.requestData.persona
+               if offer.requestData and offer.requestData.persona
+               else SimulatePersona())
+
+    async def _callback(connection: Any) -> None:
+        _webrtc_personas[connection.pc_id] = persona.model_dump()
+        try:
+            await _start_webrtc_pipeline(connection, persona)
+        except Exception:
+            log.exception("sim-webrtc: pipeline assembly failed; "
+                          "tearing down peer connection")
+            try:
+                await connection.disconnect()
+            except Exception:
+                pass
+            raise
+
+    req = SmallWebRTCRequest(
+        sdp=offer.sdp,
+        type=offer.type,
+        pc_id=offer.pc_id,
+        restart_pc=offer.restart_pc,
+    )
+    try:
+        return await _webrtc_handler.handle_web_request(req, _callback)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        # Surface the real reason instead of a bare 500. SDP-parse errors and
+        # provider key issues are the usual culprits.
+        log.exception("sim-webrtc offer failed")
+        raise HTTPException(status_code=500, detail=f"webrtc offer failed: {exc!s}")
+
+
+@app.patch("/api/simulate/voice/offer")
+async def simulate_voice_offer_patch(
+    request: Request,
+    _user: dict = Depends(require_user),
+) -> dict[str, bool]:
+    """Trickle-ICE: SmallWebRTCTransport pushes candidates as PATCH to the
+    same offer URL (not a separate `/ice` endpoint as you might expect).
+
+    Body is parsed manually for the same Content-Type reason as the POST."""
+    raw = await request.body()
+    try:
+        body = json.loads(raw)
+    except Exception as exc:
+        raise HTTPException(400, f"body must be JSON: {exc!s}")
+    try:
+        patch = SimulateVoicePatch.model_validate(body)
+    except Exception as exc:
+        raise HTTPException(422, f"bad ICE payload: {exc!s}")
+
+    from pipecat.transports.smallwebrtc.request_handler import IceCandidate
+    req = SmallWebRTCPatchRequest(
+        pc_id=patch.pc_id,
+        candidates=[
+            IceCandidate(
+                candidate=c.candidate,
+                sdp_mid=c.sdp_mid or "",
+                sdp_mline_index=c.sdp_mline_index or 0,
+            )
+            for c in patch.candidates
+        ],
+    )
+    await _webrtc_handler.handle_patch_request(req)
+    return {"ok": True}
 
 
 # ============================================================================

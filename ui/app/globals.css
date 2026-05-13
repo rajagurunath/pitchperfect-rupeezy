@@ -1,3 +1,8 @@
+/* Voice-UI-Kit (scoped) — only applies inside `.vuk-scoped` wrappers. Must
+   come BEFORE the @tailwind directives so postcss-import's strict @import
+   ordering rule is satisfied. Used by /simulate. */
+@import "@pipecat-ai/voice-ui-kit/dist/voice-ui-kit-scoped.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

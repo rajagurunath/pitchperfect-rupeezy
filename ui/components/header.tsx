@@ -32,6 +32,7 @@ export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
             <NavLink href="/operations">Operations</NavLink>
             <NavLink href="/leads">Leads</NavLink>
             <NavLink href="/calls">Calls</NavLink>
+            <NavLink href="/simulate">Studio</NavLink>
             <NavLink href="/analytics">Analytics</NavLink>
           </nav>
           <ProfileMenu />

@@ -153,4 +153,29 @@ export const api = {
     asJson<CallDetail>(fetch(`/api/calls/${id}`, { cache: "no-store", headers: authHeaders() })),
   analyze: (id: string) =>
     asJson<any>(fetch(`/api/calls/${id}/analyze`, { method: "POST", headers: authHeaders() })),
+
+  // ── Campaign Studio · Simulator ─────────────────────────────────────────
+  simulateText: (body: {
+    persona: SimulatePersona;
+    history: { role: "agent" | "lead"; content: string }[];
+    message?: string;
+  }) =>
+    asJson<{ reply: string; language: string | null; model: string }>(
+      fetch("/api/simulate/text", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(body),
+      }),
+    ),
+};
+
+export type SimulatePersona = {
+  agent_name?: string;
+  brand?: string;
+  language_pref?: string;
+  voice_id?: string;
+  lead_name?: string;
+  lead_notes?: string;
+  opener_variant?: "benefits" | "social_proof" | "question";
+  custom_opener?: string;
 };
