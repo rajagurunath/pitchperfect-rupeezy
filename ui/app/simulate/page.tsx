@@ -14,8 +14,8 @@
 //   - <UserAudioControl> mic toggle + device picker
 //   - usePipecatConversation() — streaming agent transcript
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { api, SimulatePersona } from "@/lib/api";
+import { useEffect, useRef, useState } from "react";
+import { api, agentsApi, Agent, SimulatePersona } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import {
   Button,
@@ -28,13 +28,13 @@ import {
   Textarea,
 } from "@/components/ui";
 import {
-  VoiceVisualizer,
   UserAudioControl,
   usePipecatConversation,
   usePipecatConnectionState,
   type ConversationMessage,
 } from "@pipecat-ai/voice-ui-kit";
-import { PipecatClient } from "@pipecat-ai/client-js";
+import { AuraVisualizer } from "@/components/aura-visualizer";
+import { PipecatClient, RTVIEvent } from "@pipecat-ai/client-js";
 import {
   PipecatClientProvider,
   PipecatClientAudio,
@@ -98,6 +98,28 @@ const OPENERS = [
 export default function SimulatePage() {
   const [mode, setMode] = useState<Mode>("text");
   const [persona, setPersona] = useState<SimulatePersona>(DEFAULT_PERSONA);
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [loadedAgentId, setLoadedAgentId] = useState<string | null>(null);
+
+  async function refreshAgents() {
+    try { setAgents(await agentsApi.list()); }
+    catch (e) { console.warn("agents list failed:", e); }
+  }
+  useEffect(() => { refreshAgents(); }, []);
+
+  function loadAgent(a: Agent) {
+    setLoadedAgentId(a.id);
+    setPersona({
+      agent_name:     a.agent_name ?? "",
+      brand:          a.brand ?? "Rupeezy",
+      voice_id:       a.voice_id ?? "kavya",
+      language_pref:  a.language_pref ?? "hi-IN",
+      opener_variant: (a.opener_variant as any) ?? "benefits",
+      custom_opener:  a.custom_opener ?? "",
+      lead_name:      persona.lead_name ?? "",
+      lead_notes:     persona.lead_notes ?? "",
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -110,9 +132,9 @@ export default function SimulatePage() {
             Simulator
           </h1>
           <p className="mt-1 max-w-2xl text-sm text-ink-mute">
-            Preview an agent persona end-to-end before activating a campaign.
-            The agent uses the exact prompt, LLM, voice, and qualification
-            logic that production calls run — but no real lead is dialed.
+            Train an agent end-to-end, save it, then assign it to leads from
+            the Leads page. Same prompt, LLM, voice, and qualification logic
+            production calls use — but no real lead is dialed.
           </p>
         </div>
 
@@ -126,6 +148,21 @@ export default function SimulatePage() {
         </div>
       </header>
 
+      <AgentSwitcher
+        agents={agents}
+        loadedAgentId={loadedAgentId}
+        persona={persona}
+        onLoad={loadAgent}
+        onAfterSave={async (a) => {
+          await refreshAgents();
+          setLoadedAgentId(a.id);
+        }}
+        onAfterDelete={async () => {
+          setLoadedAgentId(null);
+          await refreshAgents();
+        }}
+      />
+
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
         <PersonaSidebar persona={persona} onChange={setPersona} />
 
@@ -136,6 +173,183 @@ export default function SimulatePage() {
         )}
       </div>
     </div>
+  );
+}
+
+// ── agent switcher (load / save / delete) ───────────────────────────────────
+
+function AgentSwitcher({
+  agents,
+  loadedAgentId,
+  persona,
+  onLoad,
+  onAfterSave,
+  onAfterDelete,
+}: {
+  agents: Agent[];
+  loadedAgentId: string | null;
+  persona: SimulatePersona;
+  onLoad: (a: Agent) => void;
+  onAfterSave: (a: Agent) => Promise<void>;
+  onAfterDelete: () => Promise<void>;
+}) {
+  const loaded = agents.find((a) => a.id === loadedAgentId) ?? null;
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [showSaveAs, setShowSaveAs] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [makeDefault, setMakeDefault] = useState(false);
+
+  function personaToAgentFields() {
+    return {
+      agent_name:     persona.agent_name || null,
+      brand:          persona.brand || null,
+      voice_id:       persona.voice_id || null,
+      language_pref:  persona.language_pref || null,
+      opener_variant: persona.opener_variant || null,
+      custom_opener:  persona.custom_opener || null,
+    };
+  }
+
+  async function saveExisting() {
+    if (!loaded) return;
+    setBusy(true); setErr(null);
+    try {
+      const updated = await agentsApi.update(loaded.id, {
+        name: loaded.name,
+        ...personaToAgentFields(),
+      });
+      await onAfterSave(updated);
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function saveAs() {
+    setBusy(true); setErr(null);
+    try {
+      const created = await agentsApi.create({
+        name: newName.trim(),
+        ...personaToAgentFields(),
+        is_default: makeDefault,
+      });
+      await onAfterSave(created);
+      setShowSaveAs(false);
+      setNewName("");
+      setMakeDefault(false);
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function destroy() {
+    if (!loaded) return;
+    if (!confirm(`Delete agent "${loaded.name}"? Leads using it will fall back to the default agent.`)) return;
+    setBusy(true); setErr(null);
+    try {
+      await agentsApi.remove(loaded.id);
+      await onAfterDelete();
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally { setBusy(false); }
+  }
+
+  return (
+    <Card>
+      <CardContent className="flex flex-wrap items-center gap-3 py-4">
+        <div className="flex flex-col">
+          <Label className="text-[10px] uppercase tracking-widest text-ink-mute">
+            Load agent
+          </Label>
+          <select
+            value={loadedAgentId ?? ""}
+            onChange={(e) => {
+              const a = agents.find((x) => x.id === e.target.value);
+              if (a) onLoad(a);
+            }}
+            className="mt-1 min-w-[240px] rounded-md bg-ink border border-ink-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent/60"
+          >
+            <option value="">— New / unsaved —</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}{a.is_default ? "  ★" : ""}  · v{a.version}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {loaded && (
+          <div className="flex flex-col">
+            <div className="text-[10px] uppercase tracking-widest text-ink-mute">
+              Current version
+            </div>
+            <div className="mt-1 font-mono text-sm text-ink-text">
+              v{loaded.version}
+              {loaded.mlflow_run_id ? (
+                <span className="ml-2 text-[10px] text-ink-mute">
+                  mlflow {loaded.mlflow_run_id.slice(0, 8)}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        )}
+
+        <div className="grow" />
+
+        <div className="flex items-center gap-2">
+          {loaded && (
+            <>
+              <Button variant="secondary" disabled={busy} onClick={saveExisting}>
+                Save changes (v{loaded.version + 1})
+              </Button>
+              <Button variant="ghost" disabled={busy} onClick={destroy}>
+                Delete
+              </Button>
+            </>
+          )}
+          <Button disabled={busy} onClick={() => setShowSaveAs(true)}>
+            Save as…
+          </Button>
+        </div>
+
+        {err && <div className="basis-full text-xs text-hot">{err}</div>}
+
+        {showSaveAs && (
+          <div className="basis-full flex flex-wrap items-end gap-3 pt-3 border-t border-ink-line/60">
+            <div className="flex flex-col">
+              <Label className="text-[10px] uppercase tracking-widest text-ink-mute">
+                New agent name
+              </Label>
+              <Input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Diwali campaign — Tamil"
+                className="mt-1 min-w-[280px]"
+              />
+            </div>
+            <label className="flex items-center gap-2 text-xs text-ink-text mb-2">
+              <input
+                type="checkbox"
+                checked={makeDefault}
+                onChange={(e) => setMakeDefault(e.target.checked)}
+              />
+              Make this the default agent for new leads
+            </label>
+            <div className="grow" />
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => { setShowSaveAs(false); setNewName(""); }}
+            >
+              Cancel
+            </Button>
+            <Button disabled={busy || !newName.trim()} onClick={saveAs}>
+              {busy ? "Saving…" : "Save agent"}
+            </Button>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -562,6 +776,37 @@ function VoiceCanvas() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Agent turns arrive via the WebRTC app-message data channel (sent by
+  // BotTranscriptBroadcaster on the server). We keep our own array and
+  // merge it with the user turns from usePipecatConversation below.
+  const [agentTurns, setAgentTurns] = useState<
+    { text: string; ts: number }[]
+  >([]);
+
+  useEffect(() => {
+    if (!client) return;
+    const handler = (data: any) => {
+      // data shape from RTVIEvent.ServerMessage is ServerMessageData = {data: any}.
+      // The bot sends {type:"agent_turn", text:"..."}.
+      const payload = data?.data ?? data;
+      if (payload?.type === "agent_turn" && payload?.text) {
+        setAgentTurns((prev) => [
+          ...prev,
+          { text: String(payload.text), ts: Date.now() },
+        ]);
+      }
+    };
+    client.on(RTVIEvent.ServerMessage, handler);
+    return () => {
+      client.off(RTVIEvent.ServerMessage, handler);
+    };
+  }, [client]);
+
+  // Reset agent turns on (re)connect so a new session starts clean.
+  useEffect(() => {
+    if (!isConnected) setAgentTurns([]);
+  }, [isConnected]);
+
   async function toggle() {
     if (!client) return;
     setBusy(true);
@@ -635,19 +880,29 @@ function VoiceCanvas() {
         </CardHeader>
 
         <CardContent className="flex-1 flex flex-col items-center justify-between gap-6 py-8">
-          <div className="vuk-scoped w-full max-w-md">
-            <div className="rounded-2xl bg-ink border border-ink-line p-6 flex flex-col items-center gap-6">
-              <div className="text-[11px] uppercase tracking-widest text-ink-mute">
-                Agent · live waveform
+          <div className="w-full max-w-md">
+            <div className="relative rounded-2xl bg-gradient-to-br from-ink to-ink-line/40 border border-ink-line p-6 flex flex-col items-center gap-2 overflow-hidden">
+              {/* Soft radial glow behind the ring while the agent talks */}
+              <div
+                className={
+                  "absolute inset-0 pointer-events-none transition-opacity duration-500 " +
+                  (isConnected ? "opacity-100" : "opacity-30")
+                }
+                style={{
+                  background:
+                    "radial-gradient(circle at 50% 55%, rgba(94,234,212,0.18), transparent 60%)",
+                }}
+              />
+              <div className="relative z-10 text-[10px] uppercase tracking-[0.3em] text-ink-mute">
+                Agent
               </div>
-              <div className="w-full h-32 flex items-center justify-center">
-                <VoiceVisualizer
-                  participantType="bot"
-                  barCount={48}
-                  barGap={3}
-                  barWidth={3}
-                  barMaxHeight={120}
-                />
+              <div className="relative z-10 flex items-center justify-center">
+                <AuraVisualizer size={280} color="#5eead4" />
+              </div>
+              <div className="relative z-10 text-[11px] text-ink-mute mt-1">
+                {isConnected
+                  ? "Speak naturally — the agent is listening"
+                  : "Press Connect to begin"}
               </div>
             </div>
           </div>
@@ -689,33 +944,57 @@ function VoiceCanvas() {
         </CardContent>
       </Card>
 
-      <VoiceTimeline messages={messages} />
+      <VoiceTimeline turns={mergedTurns(messages, agentTurns)} />
     </div>
   );
 }
 
-function VoiceTimeline({ messages }: { messages: ConversationMessage[] }) {
+type MergedTurn = { role: "agent" | "user"; text: string; ts: number };
+
+function partsToText(parts: ConversationMessage["parts"]): string {
+  return parts
+    .map((p) => {
+      if (typeof p.text === "string") return p.text;
+      if (p.text && typeof p.text === "object" && "text" in (p.text as any)) {
+        return String((p.text as any).text ?? "");
+      }
+      return "";
+    })
+    .join(" ")
+    .trim();
+}
+
+function mergedTurns(
+  messages: ConversationMessage[],
+  agentTurns: { text: string; ts: number }[],
+): MergedTurn[] {
+  // Take user turns from usePipecatConversation (Pipecat STT events).
+  // Drop assistant entries — the kit doesn't fill them reliably and we
+  // get them via the app-message channel instead.
+  const userTurns: MergedTurn[] = messages
+    .filter((m) => m.role === "user")
+    .map((m) => {
+      const text = partsToText(m.parts);
+      const ts = new Date(m.createdAt || Date.now()).getTime();
+      return { role: "user" as const, text, ts };
+    })
+    .filter((t) => t.text);
+  const bot: MergedTurn[] = agentTurns.map((t) => ({
+    role: "agent" as const,
+    text: t.text,
+    ts: t.ts,
+  }));
+  return [...userTurns, ...bot].sort((a, b) => a.ts - b.ts);
+}
+
+function VoiceTimeline({ turns }: { turns: MergedTurn[] }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.scrollTo({
       top: ref.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages]);
-
-  // Flatten ConversationMessagePart[] into a single string per turn.
-  function partsToText(parts: ConversationMessage["parts"]): string {
-    return parts
-      .map((p) => {
-        if (typeof p.text === "string") return p.text;
-        if (p.text && typeof p.text === "object" && "text" in (p.text as any)) {
-          return String((p.text as any).text ?? "");
-        }
-        return "";
-      })
-      .join(" ")
-      .trim();
-  }
+  }, [turns]);
 
   return (
     <Card className="self-start sticky top-6">
@@ -723,7 +1002,7 @@ function VoiceTimeline({ messages }: { messages: ConversationMessage[] }) {
         <CardTitle>Live transcript</CardTitle>
       </CardHeader>
       <CardContent>
-        {messages.length === 0 ? (
+        {turns.length === 0 ? (
           <p className="text-xs text-ink-mute">
             Once connected, every turn — yours and the agent's — streams
             here as it's spoken.
@@ -731,30 +1010,34 @@ function VoiceTimeline({ messages }: { messages: ConversationMessage[] }) {
         ) : (
           <div
             ref={ref}
-            className="space-y-3 max-h-[60vh] overflow-y-auto pr-1"
+            className="space-y-2 max-h-[60vh] overflow-y-auto pr-1"
           >
-            {messages.map((m, i) => {
-              const text = partsToText(m.parts);
-              if (!text) return null;
-              const isAgent = m.role === "assistant";
+            {turns.map((t, i) => {
+              const isAgent = t.role === "agent";
               return (
-                <div key={i} className="flex gap-2">
+                <div
+                  key={i}
+                  className={
+                    "flex " + (isAgent ? "justify-start" : "justify-end")
+                  }
+                >
                   <div
                     className={
-                      "w-1 shrink-0 rounded-full " +
-                      (isAgent ? "bg-accent/60" : "bg-ink-mute/40")
+                      "max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed " +
+                      (isAgent
+                        ? "bg-accent-soft border border-accent/25 text-ink-text rounded-tl-sm"
+                        : "bg-ink-line text-ink-text rounded-tr-sm")
                     }
-                  />
-                  <div className="flex-1 text-xs">
+                  >
                     <div
                       className={
-                        "uppercase tracking-widest text-[10px] " +
+                        "uppercase tracking-[0.2em] text-[9px] mb-1 " +
                         (isAgent ? "text-accent" : "text-ink-mute")
                       }
                     >
                       {isAgent ? "Agent" : "You"}
                     </div>
-                    <div className="text-ink-text mt-0.5">{text}</div>
+                    <div>{t.text}</div>
                   </div>
                 </div>
               );

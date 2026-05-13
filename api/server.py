@@ -132,6 +132,7 @@ class LeadIn(BaseModel):
     language_pref: str | None = None
     voice_id: str | None = Field(default=None, description="Sarvam speaker name (e.g. 'kavya'); null falls back to SARVAM_SPEAKER env")
     agent_name: str | None = Field(default=None, description="Agent persona name; null falls back to AGENT_NAME env")
+    agent_id: str | None = Field(default=None, description="FK to agents.id; null = use default agent (or env)")
     notes: str | None = None
 
 
@@ -260,6 +261,12 @@ async def create_lead(lead: LeadIn,
                       _user: dict = Depends(require_user)) -> dict[str, Any]:
     if not lead.phone.startswith("+"):
         raise HTTPException(400, "phone must be E.164 (start with +)")
+    # Default to the studio's default agent if the form didn't specify one.
+    agent_id = lead.agent_id
+    if not agent_id:
+        default = db.get_default_agent()
+        if default:
+            agent_id = default["id"]
     lid = db.insert_lead(
         name=lead.name,
         phone=lead.phone,
@@ -267,6 +274,7 @@ async def create_lead(lead: LeadIn,
         notes=lead.notes,
         voice_id=lead.voice_id,
         agent_name=(lead.agent_name or "").strip() or None,
+        agent_id=agent_id,
     )
     return db.get_lead(lid)
 
@@ -411,6 +419,121 @@ async def stream_recording(call_id: str, request: Request) -> StreamingResponse:
     return StreamingResponse(gen(), status_code=upstream.status_code,
                              headers=pass_through,
                              media_type=pass_through["Content-Type"])
+
+
+# ============================================================================
+# Agents (Campaign Studio · saved-agent registry)
+# ============================================================================
+
+class AgentIn(BaseModel):
+    name: str
+    description: str | None = None
+    agent_name: str | None = None
+    brand: str | None = None
+    voice_id: str | None = None
+    language_pref: str | None = None
+    opener_variant: str | None = None
+    custom_opener: str | None = None
+    system_prompt: str | None = None
+    is_default: bool | None = None
+
+
+def _log_agent_to_mlflow(agent_row: dict[str, Any], change: str) -> str | None:
+    """One MLflow run per save → builds prompt-version history. Returns run_id."""
+    try:
+        import mlflow
+        from pathlib import Path as _Path
+        uri = os.getenv("MLFLOW_TRACKING_URI",
+                        "file://" + str(_Path(__file__).resolve().parents[1] / "mlruns"))
+        mlflow.set_tracking_uri(uri)
+        mlflow.set_experiment("agent-prompts")
+        with mlflow.start_run(run_name=f"{agent_row['name']}-v{agent_row['version']}") as r:
+            mlflow.log_params({
+                "agent_id":       agent_row["id"],
+                "agent_name":     agent_row.get("agent_name") or "",
+                "brand":          agent_row.get("brand") or "",
+                "voice_id":       agent_row.get("voice_id") or "",
+                "language_pref": agent_row.get("language_pref") or "",
+                "opener_variant": agent_row.get("opener_variant") or "",
+                "version":        agent_row["version"],
+                "change":         change,
+            })
+            mlflow.set_tags({"name": agent_row["name"]})
+            # The actual prompt blob as an artifact so version diffs are inspectable.
+            import tempfile, json as _json
+            with tempfile.TemporaryDirectory() as tmp:
+                p = _Path(tmp) / "agent.json"
+                p.write_text(_json.dumps(agent_row, indent=2, ensure_ascii=False))
+                mlflow.log_artifact(str(p))
+            return r.info.run_id
+    except Exception as exc:
+        log.warning("mlflow agent log failed (non-fatal): %s", exc)
+        return None
+
+
+@app.get("/api/agents")
+async def get_agents(_user: dict = Depends(require_user)) -> list[dict[str, Any]]:
+    return db.list_agents()
+
+
+@app.get("/api/agents/{agent_id}")
+async def get_agent(agent_id: str,
+                    _user: dict = Depends(require_user)) -> dict[str, Any]:
+    row = db.get_agent(agent_id)
+    if not row:
+        raise HTTPException(404, "agent not found")
+    return row
+
+
+@app.post("/api/agents", status_code=201)
+async def create_agent(payload: AgentIn,
+                       _user: dict = Depends(require_user)) -> dict[str, Any]:
+    fields = payload.model_dump(exclude_none=True)
+    if "is_default" in fields:
+        fields["is_default"] = 1 if fields["is_default"] else 0
+    try:
+        aid = db.insert_agent(**fields)
+    except Exception as exc:
+        if "UNIQUE" in str(exc):
+            raise HTTPException(409, f"agent name '{payload.name}' already exists")
+        raise
+    row = db.get_agent(aid)
+    if row:
+        run_id = _log_agent_to_mlflow(row, change="created")
+        if run_id:
+            db.update_agent(aid, mlflow_run_id=run_id)
+            row = db.get_agent(aid)
+    return row or {}
+
+
+@app.put("/api/agents/{agent_id}")
+async def update_agent(agent_id: str, payload: AgentIn,
+                       _user: dict = Depends(require_user)) -> dict[str, Any]:
+    if not db.get_agent(agent_id):
+        raise HTTPException(404, "agent not found")
+    fields = payload.model_dump(exclude_none=True)
+    if "is_default" in fields:
+        fields["is_default"] = 1 if fields["is_default"] else 0
+    try:
+        db.update_agent(agent_id, **fields)
+    except Exception as exc:
+        if "UNIQUE" in str(exc):
+            raise HTTPException(409, f"agent name '{payload.name}' already exists")
+        raise
+    row = db.get_agent(agent_id)
+    if row:
+        run_id = _log_agent_to_mlflow(row, change="updated")
+        if run_id:
+            db.update_agent(agent_id, mlflow_run_id=run_id)
+            row = db.get_agent(agent_id)
+    return row or {}
+
+
+@app.delete("/api/agents/{agent_id}", status_code=204)
+async def delete_agent(agent_id: str,
+                       _user: dict = Depends(require_user)) -> Response:
+    db.delete_agent(agent_id)
+    return Response(status_code=204)
 
 
 # ============================================================================
@@ -661,14 +784,68 @@ async def _start_webrtc_pipeline(
     user_log = UserTranscriptLogger(convo_log)
     assistant_log = AssistantTranscriptLogger(convo_log)
 
+    # Custom broadcaster — pushes agent turns directly to the browser via
+    # the WebRTC data channel as `{"type":"agent_turn", "text":"..."}`. We
+    # do this in addition to RTVI because RTVI's TTS-text events don't
+    # reliably surface as `assistant` messages in the kit's
+    # usePipecatConversation, leaving the user side of the transcript empty
+    # of agent replies. The frontend listens for these app messages and
+    # appends them to a local mirror.
+    from pipecat.frames.frames import (
+        LLMFullResponseStartFrame as _LRS,
+        LLMFullResponseEndFrame as _LRE,
+        LLMTextFrame as _LTF,
+    )
+    from pipecat.processors.frame_processor import (
+        FrameProcessor as _FP, FrameDirection as _FD,
+    )
+
+    class BotTranscriptBroadcaster(_FP):
+        """Buffers LLM text chunks and broadcasts a single agent_turn
+        message per response over the WebRTC app-message channel."""
+        def __init__(self, conn: Any) -> None:
+            super().__init__()
+            self._conn = conn
+            self._buf: list[str] = []
+
+        async def process_frame(self, frame: Any, direction: _FD) -> None:
+            await super().process_frame(frame, direction)
+            if isinstance(frame, _LRS):
+                self._buf.clear()
+            elif isinstance(frame, _LTF) and frame.text:
+                self._buf.append(frame.text)
+            elif isinstance(frame, _LRE):
+                text = "".join(self._buf).strip()
+                self._buf.clear()
+                if text:
+                    try:
+                        self._conn.send_app_message(
+                            {"type": "agent_turn", "text": text}
+                        )
+                    except Exception as exc:
+                        log.warning("send_app_message failed: %s", exc)
+            await self.push_frame(frame, direction)
+
+    bot_broadcaster = BotTranscriptBroadcaster(webrtc_connection)
+
+    # RTVI processor → handles user-side STT events on the data channel.
+    # (Bot text now goes via bot_broadcaster above instead of RTVI.)
+    from pipecat.processors.frameworks.rtvi.processor import RTVIProcessor
+    from pipecat.processors.frameworks.rtvi.observer import (
+        RTVIObserver, RTVIObserverParams,
+    )
+    rtvi = RTVIProcessor(transport=transport)
+
     pipeline = Pipeline([
         transport.input(),
+        rtvi,
         VADProcessor(vad_analyzer=SileroVADAnalyzer()),
         stt,
         user_log,
         context_aggregator.user(),
         llm,
         assistant_log,
+        bot_broadcaster,
         tts,
         transport.output(),
         context_aggregator.assistant(),
@@ -681,6 +858,19 @@ async def _start_webrtc_pipeline(
             audio_in_sample_rate=16000,
             audio_out_sample_rate=16000,
         ),
+        observers=[
+            RTVIObserver(
+                rtvi=rtvi,
+                params=RTVIObserverParams(
+                    bot_llm_enabled=True,
+                    bot_tts_enabled=True,
+                    bot_output_enabled=True,
+                    bot_speaking_enabled=True,
+                    user_transcription_enabled=True,
+                    user_speaking_enabled=True,
+                ),
+            ),
+        ],
     )
 
     @transport.event_handler("on_client_connected")
@@ -971,13 +1161,35 @@ async def ws_handler(websocket: WebSocket) -> None:
             lead_row = db.get_lead(call_row["lead_id"])
     lead_name = (lead_row or {}).get("name")
     lead_notes = (lead_row or {}).get("notes")
-    lead_lang = _to_language((lead_row or {}).get("language_pref"))  # e.g. Language.TA_IN
-    # Per-lead agent persona; falls back to AGENT_NAME env (default "Priya").
-    lead_agent_name = (lead_row or {}).get("agent_name") or os.getenv("AGENT_NAME") or "Priya"
-    # Sarvam speaker name stored in voice_id column; falls back to SARVAM_SPEAKER env.
-    # Guard against stale ElevenLabs UUIDs stored in older leads — if the value
-    # isn't a known Sarvam speaker name, ignore it and use the default.
-    _raw_voice = (lead_row or {}).get("voice_id") or ""
+    # Trained-agent lookup. If the lead points at an agent (or there's a
+    # studio default), we use the agent's persona / voice / language /
+    # opener as the baseline, and let the lead's own fields override.
+    agent_row: dict[str, Any] | None = None
+    if lead_row:
+        if lead_row.get("agent_id"):
+            agent_row = db.get_agent(lead_row["agent_id"])
+        if not agent_row:
+            agent_row = db.get_default_agent()
+    # Effective config = lead override → agent → env defaults
+    eff_language = (
+        (lead_row or {}).get("language_pref")
+        or (agent_row or {}).get("language_pref")
+    )
+    lead_lang = _to_language(eff_language)
+    lead_agent_name = (
+        (lead_row or {}).get("agent_name")
+        or (agent_row or {}).get("agent_name")
+        or os.getenv("AGENT_NAME")
+        or "Priya"
+    )
+    # Sarvam speaker name. Voice precedence mirrors the rest:
+    # lead.voice_id → agent.voice_id → default_speaker() (env). Guard against
+    # stale ElevenLabs UUIDs stored in older leads.
+    _raw_voice = (
+        (lead_row or {}).get("voice_id")
+        or (agent_row or {}).get("voice_id")
+        or ""
+    )
     speaker = _raw_voice if _raw_voice in _SARVAM_SPEAKERS else default_speaker()
 
     log.info("stream=%s call=%s lead=%s call_id=%s lang=%s speaker=%s notes=%s",
@@ -1029,12 +1241,53 @@ async def ws_handler(websocket: WebSocket) -> None:
 
     tts = build_tts(speaker, lead_lang)
 
-    system_prompt = build_system_prompt(
+    # If the trained agent has a full system_prompt override, use it as-is
+    # (the RM was explicit). Otherwise build one from prompts.py and layer
+    # the agent's opener variant / custom opener on top.
+    agent_system_prompt = (agent_row or {}).get("system_prompt") if agent_row else None
+    if agent_system_prompt and agent_system_prompt.strip():
+        system_prompt = agent_system_prompt
+        extras: list[str] = []
+        if lead_name:
+            extras.append(f"The lead's name is **{lead_name}** — use it in the opener.")
+        if lead_notes:
+            extras.append(
+                "Background notes from the admin about this lead — internalize "
+                "and adapt your pitch around them. Do NOT read them out loud:\n\n"
+                f"```\n{str(lead_notes).strip()}\n```"
+            )
+        if extras:
+            system_prompt += "\n\n# THIS CALL\n\n" + "\n\n".join(extras) + "\n"
+    else:
+        system_prompt = build_system_prompt(
+            agent_name=lead_agent_name,
+            brand=(agent_row or {}).get("brand"),
+            lead_name=lead_name,
+            lead_notes=lead_notes,
+        )
+        # Layer the trained agent's opener style on top of the default prompt.
+        opener_variant = (agent_row or {}).get("opener_variant")
+        custom_opener = (agent_row or {}).get("custom_opener")
+        _OPENER_HINTS = {
+            "benefits": "Open by leading with the strongest concrete benefit: 100% brokerage share AND daily payouts via the RISE Portal.",
+            "social_proof": "Open by mentioning that 1000+ APs already partner with us and earn daily payouts.",
+            "question": "Open with a curiosity question — ask the lead what brokerage share they're getting today and pause for their answer.",
+        }
+        opener_extra: list[str] = []
+        if custom_opener and custom_opener.strip():
+            opener_extra.append(
+                "Use this exact opener (or a very close paraphrase in the lead's language) for your first turn:\n\n"
+                f"```\n{custom_opener.strip()}\n```"
+            )
+        elif opener_variant and opener_variant in _OPENER_HINTS:
+            opener_extra.append(f"Opener style for this call: {_OPENER_HINTS[opener_variant]}")
+        if opener_extra:
+            system_prompt += "\n\n# CAMPAIGN OVERRIDES\n\n" + "\n\n".join(opener_extra) + "\n"
+
+    greeting = build_greeting_instruction(
         agent_name=lead_agent_name,
-        lead_name=lead_name,
-        lead_notes=lead_notes,
+        brand=(agent_row or {}).get("brand"),
     )
-    greeting = build_greeting_instruction(agent_name=lead_agent_name)
     context = LLMContext(
         messages=[
             {"role": "system", "content": system_prompt},

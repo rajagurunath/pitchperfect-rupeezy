@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { api, Lead, Voice, VoiceCatalog } from "@/lib/api";
+import { api, agentsApi, Agent, Lead, Voice, VoiceCatalog } from "@/lib/api";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, StatusPill, Textarea } from "@/components/ui";
 import { formatTime } from "@/lib/utils";
 
@@ -13,6 +13,8 @@ export default function LeadsPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalog | null>(null);
   const [voiceId, setVoiceId] = useState<string>("");
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [agentId, setAgentId] = useState<string>("");
 
   async function refresh() {
     try { setLeads(await api.leads()); } catch (e: any) { setErr(e.message); }
@@ -23,6 +25,11 @@ export default function LeadsPage() {
     api.voices().then((vc) => {
       setVoiceCatalog(vc);
       setVoiceId(vc.default_voice_id);
+    }).catch(() => { /* not fatal */ });
+    agentsApi.list().then((as) => {
+      setAgents(as);
+      const def = as.find((a) => a.is_default) ?? as[0];
+      if (def) setAgentId(def.id);
     }).catch(() => { /* not fatal */ });
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
@@ -40,6 +47,7 @@ export default function LeadsPage() {
         language_pref: String(form.get("language_pref") || "").trim() || undefined,
         voice_id: voiceId || undefined,
         agent_name: String(form.get("agent_name") || "").trim() || undefined,
+        agent_id: agentId || undefined,
         notes: String(form.get("notes") || "").trim() || undefined,
       };
       if (!body.name || !body.phone) {
@@ -123,32 +131,58 @@ export default function LeadsPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <Label htmlFor="agent_name">Agent name (optional)</Label>
-                  <Input
-                    id="agent_name"
-                    name="agent_name"
-                    placeholder="Priya, Anjali, Rohan…"
-                  />
-                  <p className="text-[11px] text-ink-mute">
-                    How the agent introduces itself on the call.
-                  </p>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="voice_id">Voice (ElevenLabs)</Label>
+                  <Label htmlFor="agent_id">Trained agent</Label>
                   <select
-                    id="voice_id"
-                    name="voice_id"
-                    value={voiceId}
-                    onChange={(e) => setVoiceId(e.target.value)}
+                    id="agent_id"
+                    name="agent_id"
+                    value={agentId}
+                    onChange={(e) => setAgentId(e.target.value)}
                     className="w-full rounded-lg border border-ink-line bg-ink px-3 py-2 text-sm text-ink-text outline-none focus:border-accent"
                   >
-                    {(voiceCatalog?.voices ?? []).map((v: Voice) => (
-                      <option key={v.voice_id} value={v.voice_id}>
-                        {v.name} — {v.description}
+                    <option value="">— Server defaults —</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name}{a.is_default ? " ★" : ""} · v{a.version}
                       </option>
                     ))}
                   </select>
+                  <p className="text-[11px] text-ink-mute">
+                    Persona, voice, language, and script saved from{" "}
+                    <Link href="/simulate" className="text-accent hover:underline">
+                      Studio
+                    </Link>.
+                  </p>
                 </div>
+                <div className="space-y-1">
+                  <Label htmlFor="agent_name">Override name (optional)</Label>
+                  <Input
+                    id="agent_name"
+                    name="agent_name"
+                    placeholder="Override how the agent introduces itself"
+                  />
+                  <p className="text-[11px] text-ink-mute">
+                    Leave blank to use the trained agent's name.
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="voice_id">Voice override (optional)</Label>
+                <select
+                  id="voice_id"
+                  name="voice_id"
+                  value={voiceId}
+                  onChange={(e) => setVoiceId(e.target.value)}
+                  className="w-full rounded-lg border border-ink-line bg-ink px-3 py-2 text-sm text-ink-text outline-none focus:border-accent"
+                >
+                  {(voiceCatalog?.voices ?? []).map((v: Voice) => (
+                    <option key={v.voice_id} value={v.voice_id}>
+                      {v.name} — {v.description}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-[11px] text-ink-mute">
+                  Defaults to the trained agent's voice.
+                </p>
               </div>
               <div className="space-y-1">
                 <Label htmlFor="notes">Notes for the agent (optional)</Label>
@@ -200,27 +234,41 @@ Vikram Shah,+919812345678,,Inbound from Instagram ad`}</pre>
                   <th className="px-4 py-2 font-medium">Name</th>
                   <th className="px-4 py-2 font-medium">Phone</th>
                   <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Agent</th>
                   <th className="px-4 py-2 font-medium">Lang</th>
                   <th className="px-4 py-2 font-medium">Created</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {leads.map((l) => (
-                  <tr key={l.id} className="border-b border-ink-line hover:bg-ink-line/40">
-                    <td className="px-4 py-2.5">{l.name}</td>
-                    <td className="px-4 py-2.5 font-mono text-xs">{l.phone}</td>
-                    <td className="px-4 py-2.5"><StatusPill status={l.status} /></td>
-                    <td className="px-4 py-2.5 text-ink-mute">{l.language_pref ?? "auto"}</td>
-                    <td className="px-4 py-2.5 text-ink-mute">{formatTime(l.created_at)}</td>
-                    <td className="px-4 py-2.5 flex gap-2 justify-end">
-                      <Button variant="primary" onClick={() => callLead(l.id)} disabled={l.status === "calling"}>
-                        Call
-                      </Button>
-                      <Button variant="ghost" onClick={() => deleteLead(l.id)}>Delete</Button>
-                    </td>
-                  </tr>
-                ))}
+                {leads.map((l) => {
+                  const agent = agents.find((a) => a.id === l.agent_id);
+                  return (
+                    <tr key={l.id} className="border-b border-ink-line hover:bg-ink-line/40">
+                      <td className="px-4 py-2.5">{l.name}</td>
+                      <td className="px-4 py-2.5 font-mono text-xs">{l.phone}</td>
+                      <td className="px-4 py-2.5"><StatusPill status={l.status} /></td>
+                      <td className="px-4 py-2.5 text-xs">
+                        {agent ? (
+                          <span className="text-ink-text">
+                            {agent.name}
+                            <span className="text-ink-mute"> · v{agent.version}</span>
+                          </span>
+                        ) : (
+                          <span className="text-ink-mute italic">defaults</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-ink-mute">{l.language_pref ?? "auto"}</td>
+                      <td className="px-4 py-2.5 text-ink-mute">{formatTime(l.created_at)}</td>
+                      <td className="px-4 py-2.5 flex gap-2 justify-end">
+                        <Button variant="primary" onClick={() => callLead(l.id)} disabled={l.status === "calling"}>
+                          Call
+                        </Button>
+                        <Button variant="ghost" onClick={() => deleteLead(l.id)}>Delete</Button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

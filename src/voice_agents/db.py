@@ -98,6 +98,29 @@ CREATE TABLE IF NOT EXISTS call_events (
     FOREIGN KEY (call_id) REFERENCES calls(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS call_events_call_idx ON call_events(call_id, id);
+
+-- Saved agents — the Campaign Studio writes here. Each row is one named
+-- "trained agent": persona + script + qualification rules baked together.
+-- Leads point at an agent via leads.agent_id; the dial path loads the
+-- agent and uses its persona / voice / system_prompt for the call.
+CREATE TABLE IF NOT EXISTS agents (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL UNIQUE,
+    description     TEXT,
+    agent_name      TEXT,             -- spoken persona (e.g. "Priya"); NULL → AGENT_NAME env
+    brand           TEXT,             -- e.g. "Rupeezy"
+    voice_id        TEXT,             -- Sarvam speaker name
+    language_pref   TEXT,             -- e.g. "hi-IN"
+    opener_variant  TEXT,             -- benefits | social_proof | question
+    custom_opener   TEXT,
+    system_prompt   TEXT,             -- full prompt override; NULL → prompts.py default
+    version         INTEGER NOT NULL DEFAULT 1,
+    is_default      INTEGER NOT NULL DEFAULT 0,
+    mlflow_run_id   TEXT,             -- prompt-versioning run for this snapshot
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS agents_default_idx ON agents(is_default);
 """
 
 
@@ -116,6 +139,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     cols = {r[1] for r in conn.execute("PRAGMA table_info(calls)")}
     if "analysis_json" not in cols:
         conn.execute("ALTER TABLE calls ADD COLUMN analysis_json TEXT")
+    # Foreign-key from leads → agents (Campaign Studio). Nullable; NULL
+    # means "use server defaults" (agent_name env, etc.).
+    lead_cols = {r[1] for r in conn.execute("PRAGMA table_info(leads)")}
+    if "agent_id" not in lead_cols:
+        conn.execute("ALTER TABLE leads ADD COLUMN agent_id TEXT")
 
 
 def _ensure_init() -> None:
@@ -157,16 +185,17 @@ def new_id(prefix: str) -> str:
 
 def insert_lead(name: str, phone: str, language_pref: str | None = None,
                 notes: str | None = None, voice_id: str | None = None,
-                agent_name: str | None = None) -> str:
+                agent_name: str | None = None,
+                agent_id: str | None = None) -> str:
     lid = new_id("lead")
     ts = now_iso()
     with with_conn() as c:
         c.execute(
             "INSERT INTO leads(id,name,phone,language_pref,voice_id,agent_name,"
-            "notes,status,created_at,updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?)",
-            (lid, name, phone, language_pref, voice_id, agent_name, notes,
-             "queued", ts, ts),
+            "agent_id,notes,status,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (lid, name, phone, language_pref, voice_id, agent_name,
+             agent_id, notes, "queued", ts, ts),
         )
     return lid
 
@@ -473,6 +502,93 @@ def calls_by_day(days: int = 14) -> list[dict[str, Any]]:
             (f"-{days} days",),
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ----- agents (Campaign Studio) -----------------------------------------------
+
+_AGENT_COLS = (
+    "id", "name", "description", "agent_name", "brand", "voice_id",
+    "language_pref", "opener_variant", "custom_opener", "system_prompt",
+    "version", "is_default", "mlflow_run_id", "created_at", "updated_at",
+)
+
+
+def list_agents() -> list[dict[str, Any]]:
+    with with_conn() as c:
+        rows = c.execute(
+            f"SELECT {','.join(_AGENT_COLS)} FROM agents "
+            "ORDER BY is_default DESC, datetime(updated_at) DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_agent(agent_id: str) -> dict[str, Any] | None:
+    with with_conn() as c:
+        r = c.execute(
+            f"SELECT {','.join(_AGENT_COLS)} FROM agents WHERE id=?",
+            (agent_id,),
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def get_default_agent() -> dict[str, Any] | None:
+    with with_conn() as c:
+        r = c.execute(
+            f"SELECT {','.join(_AGENT_COLS)} FROM agents WHERE is_default=1 "
+            "ORDER BY datetime(updated_at) DESC LIMIT 1"
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def insert_agent(**fields: Any) -> str:
+    aid = new_id("agent")
+    ts = now_iso()
+    fields = {**fields, "id": aid, "version": 1, "created_at": ts, "updated_at": ts}
+    fields.setdefault("is_default", 0)
+    cols = [k for k in _AGENT_COLS if k in fields]
+    placeholders = ",".join("?" * len(cols))
+    with with_conn() as c:
+        if fields.get("is_default"):
+            c.execute("UPDATE agents SET is_default=0")
+        c.execute(
+            f"INSERT INTO agents({','.join(cols)}) VALUES ({placeholders})",
+            tuple(fields[k] for k in cols),
+        )
+    return aid
+
+
+def update_agent(agent_id: str, **fields: Any) -> None:
+    if not fields:
+        return
+    fields = {k: v for k, v in fields.items() if k in _AGENT_COLS and k not in {"id", "created_at"}}
+    fields["updated_at"] = now_iso()
+    sets = ", ".join(f"{k}=?" for k in fields)
+    with with_conn() as c:
+        if fields.get("is_default"):
+            c.execute("UPDATE agents SET is_default=0 WHERE id<>?", (agent_id,))
+        # Bump version when a content-bearing field changes.
+        meaningful = {"agent_name", "brand", "voice_id", "language_pref",
+                      "opener_variant", "custom_opener", "system_prompt"}
+        if meaningful & set(fields):
+            c.execute("UPDATE agents SET version=version+1 WHERE id=?", (agent_id,))
+        c.execute(
+            f"UPDATE agents SET {sets} WHERE id=?",
+            tuple(fields[k] for k in fields) + (agent_id,),
+        )
+
+
+def delete_agent(agent_id: str) -> None:
+    with with_conn() as c:
+        c.execute("UPDATE leads SET agent_id=NULL WHERE agent_id=?", (agent_id,))
+        c.execute("DELETE FROM agents WHERE id=?", (agent_id,))
+
+
+def set_lead_agent(lead_id: str, agent_id: str | None) -> None:
+    with with_conn() as c:
+        c.execute(
+            "UPDATE leads SET agent_id=?, updated_at=? WHERE id=?",
+            (agent_id, now_iso(), lead_id),
+        )
 
 
 # ----- dashboard --------------------------------------------------------------

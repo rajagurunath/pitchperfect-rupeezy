@@ -11,6 +11,7 @@ export type Lead = {
   language_pref: string | null;
   voice_id: string | null;
   agent_name: string | null;
+  agent_id: string | null;
   notes: string | null;
   status: "queued" | "calling" | "done" | "dnd";
   created_at: string;
@@ -116,7 +117,7 @@ export const api = {
     asJson<Lead[]>(
       fetch(`/api/leads${status ? `?status=${status}` : ""}`, { cache: "no-store", headers: authHeaders() }),
     ),
-  createLead: (body: { name: string; phone: string; language_pref?: string; voice_id?: string; agent_name?: string; notes?: string }) =>
+  createLead: (body: { name: string; phone: string; language_pref?: string; voice_id?: string; agent_name?: string; agent_id?: string; notes?: string }) =>
     asJson<Lead>(
       fetch("/api/leads", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(body) }),
     ),
@@ -178,4 +179,52 @@ export type SimulatePersona = {
   lead_notes?: string;
   opener_variant?: "benefits" | "social_proof" | "question";
   custom_opener?: string;
+};
+
+// ── Campaign Studio · Saved agents ────────────────────────────────────────
+export type Agent = {
+  id: string;
+  name: string;
+  description: string | null;
+  agent_name: string | null;
+  brand: string | null;
+  voice_id: string | null;
+  language_pref: string | null;
+  opener_variant: "benefits" | "social_proof" | "question" | null;
+  custom_opener: string | null;
+  system_prompt: string | null;
+  version: number;
+  is_default: 0 | 1;
+  mlflow_run_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AgentInput = Partial<
+  Omit<
+    Agent,
+    "id" | "version" | "mlflow_run_id" | "created_at" | "updated_at" | "is_default"
+  >
+> & {
+  name: string;
+  is_default?: boolean;
+};
+
+export const agentsApi = {
+  list: () => asJson<Agent[]>(fetch("/api/agents", {
+    cache: "no-store", headers: authHeaders(),
+  })),
+  get: (id: string) => asJson<Agent>(fetch(`/api/agents/${id}`, {
+    cache: "no-store", headers: authHeaders(),
+  })),
+  create: (body: AgentInput) => asJson<Agent>(fetch("/api/agents", {
+    method: "POST", headers: jsonHeaders(), body: JSON.stringify(body),
+  })),
+  update: (id: string, body: AgentInput) => asJson<Agent>(fetch(`/api/agents/${id}`, {
+    method: "PUT", headers: jsonHeaders(), body: JSON.stringify(body),
+  })),
+  remove: async (id: string) => {
+    const r = await fetch(`/api/agents/${id}`, { method: "DELETE", headers: authHeaders() });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  },
 };
