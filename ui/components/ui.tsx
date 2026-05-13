@@ -32,21 +32,30 @@ export function CardContent({ className, ...rest }: React.HTMLAttributes<HTMLDiv
 // ---------- Button ----------
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+type ButtonSize = "sm" | "md";
 
 export function Button({
   variant = "primary",
+  size = "md",
   className,
   ...rest
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "size"> & {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+}) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+    "inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed";
+  const sizes: Record<ButtonSize, string> = {
+    sm: "px-2.5 py-1 text-xs",
+    md: "px-3 py-1.5 text-sm",
+  };
   const variants: Record<ButtonVariant, string> = {
     primary: "bg-accent text-ink hover:opacity-90",
     secondary: "bg-ink-line text-ink-text hover:bg-[#2c313a]",
     ghost: "text-ink-text hover:bg-ink-line",
     danger: "bg-hot text-white hover:opacity-90",
   };
-  return <button className={cn(base, variants[variant], className)} {...rest} />;
+  return <button className={cn(base, sizes[size], variants[variant], className)} {...rest} />;
 }
 
 // ---------- Score / status badge ----------

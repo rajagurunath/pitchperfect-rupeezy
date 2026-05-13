@@ -3,12 +3,14 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, Call } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle, ScoreBadge, StatusPill } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle, ScoreBadge, StatusPill, Button } from "@/components/ui";
 import { formatDuration, formatTime } from "@/lib/utils";
 
 export default function CallsPage() {
   const [calls, setCalls] = useState<Call[]>([]);
   const [filter, setFilter] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10); // Default page size
 
   async function refresh() {
     setCalls(await api.calls(filter ? { score: filter } : undefined));
@@ -20,6 +22,10 @@ export default function CallsPage() {
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filter]);
+
+  // Calculate paginated calls
+  const paginatedCalls = calls.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const totalPages = Math.max(1, Math.ceil(calls.length / pageSize));
 
   return (
     <div className="space-y-8">
@@ -46,7 +52,7 @@ export default function CallsPage() {
             <thead className="text-left text-ink-mute text-xs border-b border-ink-line">
               <tr>
                 <th className="px-4 py-2 font-medium">Lead</th>
-                <th className="px-4 py-2 font-medium">Phone</th>
+                <th className="px-4 px-2 font-medium">Phone</th>
                 <th className="px-4 py-2 font-medium">Status</th>
                 <th className="px-4 py-2 font-medium">Score</th>
                 <th className="px-4 py-2 font-medium">Duration</th>
@@ -60,7 +66,7 @@ export default function CallsPage() {
                   <td colSpan={7} className="p-6 text-sm text-ink-mute">No calls match this filter.</td>
                 </tr>
               ) : (
-                calls.map((c) => (
+                paginatedCalls.map((c) => (
                   <tr key={c.id} className="border-b border-ink-line hover:bg-ink-line/40">
                     <td className="px-4 py-2.5">{c.lead_name ?? "—"}</td>
                     <td className="px-4 py-2.5 font-mono text-xs">{c.lead_phone ?? "—"}</td>
@@ -76,6 +82,31 @@ export default function CallsPage() {
           </table>
         </CardContent>
       </Card>
+
+      {/* Pagination Controls */}
+      {calls.length > pageSize && (
+        <div className="flex justify-center items-center space-x-3 mt-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 0))}
+            disabled={currentPage === 0}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-ink-text">
+            Page {currentPage + 1} of {totalPages}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages - 1))}
+            disabled={currentPage >= totalPages - 1}
+          >
+            Next
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
