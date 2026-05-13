@@ -44,7 +44,6 @@ export default function Operations() {
             Live pipeline — refreshes every 5 seconds.
           </p>
         </div>
-        <Button variant="secondary" onClick={refresh}>Refresh</Button>
       </div>
 
       {err && (

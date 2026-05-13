@@ -13,6 +13,8 @@ export default function LeadsPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [voiceCatalog, setVoiceCatalog] = useState<VoiceCatalog | null>(null);
   const [voiceId, setVoiceId] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState(0);
+  const [pageSize, setPageSize] = useState(10); // Default page size
 
   async function refresh() {
     try { setLeads(await api.leads()); } catch (e: any) { setErr(e.message); }
@@ -90,6 +92,10 @@ export default function LeadsPage() {
     try { await api.deleteLead(id); await refresh(); }
     catch (e: any) { setErr(e.message); }
   }
+
+  // Calculate paginated leads
+  const paginatedLeads = leads.slice(currentPage * pageSize, (currentPage + 1) * pageSize);
+  const totalPages = Math.max(1, Math.ceil(leads.length / pageSize));
 
   return (
     <div className="space-y-8">
@@ -179,10 +185,10 @@ export default function LeadsPage() {
             <FileDrop disabled={busy} onPick={onUpload} />
             <details className="text-xs text-ink-mute">
               <summary className="cursor-pointer hover:text-ink-text">Sample CSV</summary>
-              <pre className="mt-2 p-3 rounded-md bg-ink border border-ink-line font-mono text-[11px] whitespace-pre-wrap">{`name,phone,language_pref,notes
+              <pre className="mt-2 p-3 rounded-md bg-ink border border-ink-line font-mono text-[11px] whitespace-pre-wrap">name,phone,language_pref,notes
 Ravi Kumar,+919444531354,hi-IN,Existing MFD with 50 clients
 Asha Iyer,+919876543210,ta-IN,
-Vikram Shah,+919812345678,,Inbound from Instagram ad`}</pre>
+Vikram Shah,+919812345678,,Inbound from Instagram ad</pre>
             </details>
           </CardContent>
         </Card>
@@ -206,7 +212,7 @@ Vikram Shah,+919812345678,,Inbound from Instagram ad`}</pre>
                 </tr>
               </thead>
               <tbody>
-                {leads.map((l) => (
+                {paginatedLeads.map((l) => (
                   <tr key={l.id} className="border-b border-ink-line hover:bg-ink-line/40">
                     <td className="px-4 py-2.5">{l.name}</td>
                     <td className="px-4 py-2.5 font-mono text-xs">{l.phone}</td>
@@ -226,6 +232,31 @@ Vikram Shah,+919812345678,,Inbound from Instagram ad`}</pre>
           )}
         </CardContent>
       </Card>
+
+      {/* Pagination Controls */}
+      {leads.length > pageSize && (
+        <div className="flex justify-center items-center space-x-3 mt-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 0))}
+            disabled={currentPage === 0}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-ink-text">
+            Page {currentPage + 1} of {totalPages}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages - 1))}
+            disabled={currentPage >= totalPages - 1}
+          >
+            Next
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -207,23 +207,23 @@ function ScoreDonut({ data }: { data: Analytics }) {
   return (
     <Card>
       <CardHeader><CardTitle>Score split</CardTitle></CardHeader>
-      <CardContent>
-        <div style={{ width: "100%", height: 280 }}>
-          <ResponsiveContainer>
-            <PieChart>
-              <Pie data={pie} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={2} isAnimationActive={false}>
-                {pie.map((d) => <Cell key={d.name} fill={d.fill} />)}
-              </Pie>
-              <Legend wrapperStyle={{ fontSize: 12, color: "#8a92a0" }} />
-              <Tooltip contentStyle={TOOLTIP_BG} formatter={(v: any) => [`${v} calls`, ""]} />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-        <div className="-mt-6 text-center">
-          <div className="text-[11px] uppercase tracking-wider text-ink-mute">Total scored</div>
-          <div className="font-serif text-2xl text-ink-text">{total}</div>
-        </div>
-      </CardContent>
+       <CardContent>
+         <div style={{ width: "100%", height: 280 }}>
+           <ResponsiveContainer>
+             <PieChart>
+               <Pie data={pie} dataKey="value" nameKey="name" innerRadius={62} outerRadius={92} paddingAngle={2} isAnimationActive={false}>
+                 {pie.map((d) => <Cell key={d.name} fill={d.fill} />)}
+               </Pie>
+               <Legend wrapperStyle={{ fontSize: 12, color: "#8a92a0" }} />
+               <Tooltip contentStyle={TOOLTIP_BG} formatter={(v: any) => [`${v} calls`, ""]} />
+             </PieChart>
+           </ResponsiveContainer>
+         </div>
+         <div className="mt-4 text-center">
+           <div className="text-[11px] uppercase tracking-wider text-ink-mute">Total scored</div>
+           <div className="font-serif text-2xl text-ink-text">{total}</div>
+         </div>
+       </CardContent>
     </Card>
   );
 }
