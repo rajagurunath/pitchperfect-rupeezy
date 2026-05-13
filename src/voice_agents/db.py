@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS calls (
     status TEXT NOT NULL DEFAULT 'queued',  -- queued | ringing | in-progress | completed | failed | no-answer | canceled
     score TEXT,                              -- HOT | WARM | COLD | null
     summary TEXT,                            -- post-call summary text
+    analysis_json TEXT,                      -- full JSON from post-call analyzer
     duration_seconds INTEGER,
     recording_url TEXT,
     started_at TEXT,
@@ -111,6 +112,10 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE leads ADD COLUMN agent_name TEXT")
     except sqlite3.OperationalError:
         pass  # column already exists
+    # Add analysis_json column if missing (added with enhanced scorer)
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(calls)")}
+    if "analysis_json" not in cols:
+        conn.execute("ALTER TABLE calls ADD COLUMN analysis_json TEXT")
 
 
 def _ensure_init() -> None:
@@ -215,6 +220,14 @@ def update_call(call_id: str, **fields: Any) -> None:
     with with_conn() as c:
         c.execute(f"UPDATE calls SET {cols} WHERE id=?",
                   (*fields.values(), call_id))
+
+
+def update_call_analysis(call_id: str, analysis_json: str) -> None:
+    with with_conn() as c:
+        c.execute(
+            "UPDATE calls SET analysis_json=? WHERE id=?",
+            (analysis_json, call_id),
+        )
 
 
 def list_calls(limit: int = 200, lead_id: str | None = None,

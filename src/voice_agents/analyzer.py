@@ -22,28 +22,35 @@ log = logging.getLogger("voice-agents.analyzer")
 
 
 _ANALYZER_PROMPT = """\
-You are an analyst reviewing the transcript of a phone call between
-{brand}'s AI relationship manager and a prospective Authorized Person
-(AP) partner. Output strictly the following JSON, no prose:
+You are an expert sales analyst reviewing a phone call between {brand}'s AI
+relationship manager and a prospective Authorized Person (AP) partner lead.
+
+Output ONLY valid JSON matching this schema (no prose, no markdown fences):
 
 {{
   "score": "HOT" | "WARM" | "COLD",
-  "summary": "<3–5 sentence summary covering: lead's profile, what they
-              asked, which objections they raised, where the conversation
-              landed, and what the next concrete action should be>",
-  "objections_raised": ["<short label>", "..."],
-  "next_action": "<one-sentence concrete recommendation for the human RM>"
+  "summary": "<3–5 sentence summary: lead profile, what they asked, objections raised, where conversation landed, concrete next step>",
+  "sentiment": "positive" | "neutral" | "negative",
+  "interest_level": <integer 1–10>,
+  "objection_intensity": <integer 1–10>,
+  "follow_up_priority": <integer 1–10>,
+  "buying_signals": ["<exact quote or paraphrase>", ...],
+  "objections_raised": ["<short label>", ...],
+  "next_action": "<one concrete sentence for the human RM>"
 }}
 
 Scoring rubric:
-* HOT  — explicit interest; asked about commission / sign-up / onboarding
-         timeline; has client base; said things like "kab start kar sakte hain",
-         "send the link", "ready hu". Should be called back by a human RM
-         within 30 minutes.
-* WARM — engaged but non-committal; asked general questions; said "send
-         details" or "let me think". Eligible for WhatsApp follow-up.
-* COLD — dismissive, wrong number, "do not call", or simply not interested.
-         No further outreach.
+HOT  — explicit interest; asked about commission / sign-up / onboarding timeline;
+       has existing client base; said "kab start kar sakte hain", "send the link",
+       "ready hu". Human RM callback within 30 minutes.
+WARM — engaged but non-committal; asked general questions; "send details" / "let
+       me think". Eligible for WhatsApp follow-up.
+COLD — dismissive, wrong number, "do not call", or simply not interested.
+
+interest_level: 1 = completely disinterested, 10 = ready to sign up now.
+objection_intensity: 1 = no objections, 10 = hostile / multiple hard objections.
+follow_up_priority: 1 = no follow-up needed (COLD), 10 = call back within 30 min (HOT).
+buying_signals: actual phrases or behaviours that indicate purchase intent. Empty list if COLD.
 """
 
 
@@ -61,10 +68,12 @@ def _build_messages(brand: str, transcript: list[dict[str, Any]]) -> list[dict[s
 
 
 def _extract_json(text: str) -> dict[str, Any] | None:
-    """Strip ``json fences and parse. Tolerant of leading/trailing prose."""
+    """Strip ``json fences / <think> blocks and parse. Tolerant of prose."""
     if not text:
         return None
     cleaned = text.strip()
+    # Kimi-K2.6 with thinking on sometimes emits <think>...</think> in content
+    cleaned = re.sub(r"<think>.*?</think>", "", cleaned, flags=re.DOTALL).strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     # Find the outermost {...}
@@ -98,18 +107,30 @@ async def analyze_call(call_id: str) -> dict[str, Any] | None:
     api_key = os.getenv("OPENAI_API_KEY", "")
     brand = os.getenv("AGENT_BRAND", "Rupeezy")
 
-    payload = {
+    # Schema-driven extraction doesn't need chain-of-thought. With thinking
+    # on, Kimi spends the token budget on reasoning_content and the JSON in
+    # content gets truncated (we saw finish_reason=length on real calls).
+    # Default OFF; set ANALYZER_DISABLE_THINKING=0 to flip it back.
+    disable_thinking = os.getenv("ANALYZER_DISABLE_THINKING", "1") == "1"
+    payload: dict[str, Any] = {
         "model": model,
         "messages": _build_messages(brand, transcript),
         "temperature": 0.2,
-        "max_tokens": 600,
+        # Bigger budget regardless — Kimi sometimes ignores the thinking-off
+        # toggle on certain vLLM builds and we don't want a truncation here.
+        "max_tokens": int(os.getenv("ANALYZER_MAX_TOKENS", "16384")),
     }
-    # We DO want reasoning on for the analyzer — quality > latency.
-    if os.getenv("ANALYZER_DISABLE_THINKING", "0") == "1":
-        payload["chat_template_kwargs"] = {"thinking": False}
+    if disable_thinking:
+        # vLLM only forwards custom kwargs that live inside `extra_body`.
+        # Top-level `chat_template_kwargs` is silently dropped.
+        # Send both spellings — different Moonshot/vLLM builds honor different keys.
+        payload["extra_body"] = {
+            "chat_template_kwargs": {"thinking": False, "enable_thinking": False},
+            "enable_thinking": False,
+        }
 
     log.info("analyze_call: posting to %s/chat/completions for %s", base_url, call_id)
-    async with httpx.AsyncClient(timeout=120) as client:
+    async with httpx.AsyncClient(timeout=300) as client:
         r = await client.post(
             f"{base_url}/chat/completions",
             headers={"Authorization": f"Bearer {api_key}",
@@ -119,10 +140,32 @@ async def analyze_call(call_id: str) -> dict[str, Any] | None:
     if r.status_code != 200:
         log.error("analyzer LLM failed: %d %s", r.status_code, r.text[:300])
         return None
-    raw = r.json()["choices"][0]["message"].get("content") or ""
+    body = r.json()
+    choice = body["choices"][0]
+    msg = choice["message"]
+    raw = (msg.get("content") or "").strip()
+    # Some vLLM builds split reasoning models' output: chain-of-thought into
+    # `reasoning_content`, final answer into `content`. If content is empty
+    # (model never finished thinking) the JSON is sometimes embedded in
+    # reasoning_content as a last-line dump — try that as a fallback.
+    if not _extract_json(raw):
+        reasoning = (msg.get("reasoning_content") or "").strip()
+        if reasoning:
+            raw = (raw + "\n" + reasoning).strip()
     parsed = _extract_json(raw)
     if not parsed:
-        log.error("analyzer: could not parse JSON from: %s", raw[:300])
+        finish = choice.get("finish_reason")
+        usage = body.get("usage", {})
+        msg_keys = sorted(msg.keys())
+        reasoning_len = len((msg.get("reasoning_content") or ""))
+        log.error(
+            "analyzer: could not parse JSON "
+            "(finish=%s, content_len=%d, reasoning_len=%d, msg_keys=%s, usage=%s) "
+            "content_head=%r reasoning_head=%r",
+            finish, len(msg.get("content") or ""), reasoning_len, msg_keys, usage,
+            (msg.get("content") or "")[:300],
+            (msg.get("reasoning_content") or "")[:300],
+        )
         return None
 
     score = parsed.get("score")
@@ -130,7 +173,28 @@ async def analyze_call(call_id: str) -> dict[str, Any] | None:
         log.warning("analyzer: bad score %r — defaulting to WARM", score)
         score = "WARM"
     summary = parsed.get("summary", "")
+
+    # Persist score + summary to existing columns (backward compat)
     db.update_call(call_id, score=score, summary=summary)
-    log.info("analyze_call: %s → %s", call_id, score)
+
+    # Persist full analysis JSON to new column
+    import json as _json
+    db.update_call_analysis(call_id, _json.dumps(parsed))
+
+    # Push analysis to MLflow if a tracker is active for this call
+    try:
+        from .mlflow_tracker import get_tracker
+        tracker = get_tracker(call_id)
+        if tracker:
+            tracker.log_analysis(parsed)
+    except Exception as exc:
+        log.warning("mlflow analysis log failed (non-fatal): %s", exc)
+
+    log.info(
+        "analyze_call: %s → %s (interest=%s/10 priority=%s/10)",
+        call_id, score,
+        parsed.get("interest_level", "?"),
+        parsed.get("follow_up_priority", "?"),
+    )
     parsed["score"] = score
     return parsed

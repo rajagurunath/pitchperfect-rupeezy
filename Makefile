@@ -124,8 +124,11 @@ reset-db:
 
 stop:
 	@echo "→ stopping anything on :$(PORT_API) :$(PORT_UI) :$(PORT_NGROK)"
-	-@lsof -ti :$(PORT_API) :$(PORT_UI) :$(PORT_NGROK) 2>/dev/null | xargs -r kill -9
-	-@pkill -9 -f "api\.server|voice_agents\.api|next dev|next-server|ngrok http|twilio_bot" 2>/dev/null || true
+	-@for port in $(PORT_API) $(PORT_UI) $(PORT_NGROK); do \
+	  pids=$$(lsof -ti :$$port 2>/dev/null); \
+	  [ -n "$$pids" ] && kill -9 $$pids 2>/dev/null || true; \
+	done
+	-@pkill -9 -f "uvicorn|api\.server|voice_agents\.api|next dev|next-server|ngrok http|twilio_bot" 2>/dev/null || true
 	@echo "→ stopped"
 
 status:

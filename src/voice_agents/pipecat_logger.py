@@ -109,6 +109,14 @@ class ConversationLog:
                 db.append_turn(self._call_id, speaker, text, language)
             except Exception as e:
                 logger.warning("DB transcript write failed (%s); JSON still ok", e)
+        # MLflow turn tracking — non-fatal
+        try:
+            from .mlflow_tracker import get_tracker
+            tracker = get_tracker(self._call_id)
+            if tracker:
+                tracker.log_turn(speaker, text)
+        except Exception:
+            pass
 
     def _flush(self) -> None:
         tmp = self._path.with_suffix(".json.tmp")

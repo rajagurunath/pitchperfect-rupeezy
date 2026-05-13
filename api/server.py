@@ -35,7 +35,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-import aiohttp
 import requests
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, WebSocket
@@ -51,8 +50,7 @@ from pipecat.processors.aggregators.llm_context import LLMContext
 from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.serializers.twilio import TwilioFrameSerializer
-from pipecat.services.elevenlabs.stt import ElevenLabsSTTService
-from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
+from pipecat.transcriptions.language import Language
 from pipecat.services.openai.base_llm import BaseOpenAILLMService
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.transports.websocket.fastapi import (
@@ -77,6 +75,7 @@ from api.auth import (
     require_user,
     verify_credentials,
 )
+from api.providers import build_stt, build_tts, default_speaker, STT_PROVIDER, TTS_PROVIDER
 
 load_dotenv()
 
@@ -108,7 +107,7 @@ class LeadIn(BaseModel):
     name: str
     phone: str = Field(..., description="E.164, e.g. +919444531354")
     language_pref: str | None = None
-    voice_id: str | None = Field(default=None, description="ElevenLabs voice ID; null falls back to ELEVENLABS_VOICE_ID")
+    voice_id: str | None = Field(default=None, description="Sarvam speaker name (e.g. 'kavya'); null falls back to SARVAM_SPEAKER env")
     agent_name: str | None = Field(default=None, description="Agent persona name; null falls back to AGENT_NAME env")
     notes: str | None = None
 
@@ -178,28 +177,52 @@ async def analytics(days: int = 14,
     }
 
 
-# Curated catalog of multilingual-capable ElevenLabs voices. ``eleven_turbo_v2_5``
-# makes any voice speak Hindi/Tamil natively, so this is enough for the form.
-# Override or extend by editing this list (no runtime cost).
+# Curated catalog of Sarvam bulbul:v3 speakers.
+# voice_id here is the Sarvam speaker name (stored in the leads.voice_id column).
+SARVAM_VOICE_CATALOG = [
+    {"voice_id": "kavya",    "name": "Kavya",    "description": "Female · warm · natural"},
+    {"voice_id": "priya",    "name": "Priya",    "description": "Female · friendly · clear"},
+    {"voice_id": "neha",     "name": "Neha",     "description": "Female · bright · engaging"},
+    {"voice_id": "anushka",  "name": "Anushka",  "description": "Female · soft · expressive"},
+    {"voice_id": "manisha",  "name": "Manisha",  "description": "Female · mature · warm"},
+    {"voice_id": "shreya",   "name": "Shreya",   "description": "Female · energetic · upbeat"},
+    {"voice_id": "ishita",   "name": "Ishita",   "description": "Female · confident · articulate"},
+    {"voice_id": "vidya",    "name": "Vidya",    "description": "Female · calm · professional"},
+    {"voice_id": "shubh",    "name": "Shubh",    "description": "Male · warm · trustworthy"},
+    {"voice_id": "rahul",    "name": "Rahul",    "description": "Male · clear · professional"},
+    {"voice_id": "amit",     "name": "Amit",     "description": "Male · deep · calm"},
+    {"voice_id": "kabir",    "name": "Kabir",    "description": "Male · smooth · confident"},
+    {"voice_id": "aditya",   "name": "Aditya",   "description": "Male · resonant · authoritative"},
+    {"voice_id": "abhilash", "name": "Abhilash", "description": "Male · rich · storyteller"},
+]
+
+# Set of valid Sarvam speaker names — used to discard stale ElevenLabs UUIDs
+# that may still be stored in older leads' voice_id column.
+_SARVAM_SPEAKERS: set[str] = {v["voice_id"] for v in SARVAM_VOICE_CATALOG}
+
+
 ELEVENLABS_VOICE_CATALOG = [
     {"voice_id": "hpp4J3VqNfWAUOO0d1Us", "name": "Bella",   "description": "Female · professional · warm"},
     {"voice_id": "EXAVITQu4vr4xnSDxMaL", "name": "Sarah",   "description": "Female · mature · reassuring"},
     {"voice_id": "cgSgspJ2msm6clMCkdW9", "name": "Jessica", "description": "Female · playful · bright"},
     {"voice_id": "FGY2WhTYpPnrIDTdsKH5", "name": "Laura",   "description": "Female · enthusiast · quirky"},
-    {"voice_id": "pFZP5JQG7iQjIQuC4Bku", "name": "Lily",    "description": "Female · velvety · actress"},
     {"voice_id": "JBFqnCBsd6RMkjVDRZzb", "name": "George",  "description": "Male · warm storyteller"},
     {"voice_id": "IKne3meq5aSn9XLyUdCD", "name": "Charlie", "description": "Male · deep · confident"},
     {"voice_id": "cjVigY5qzO86Huf0OWal", "name": "Eric",    "description": "Male · smooth · trustworthy"},
     {"voice_id": "nPczCjzI2devNBz1zQrb", "name": "Brian",   "description": "Male · deep · resonant"},
-    {"voice_id": "iP95p4xoKVk53GoZ742B", "name": "Chris",   "description": "Male · charming · down-to-earth"},
 ]
 
 
 @app.get("/api/voices")
 async def voices(_user: dict = Depends(require_user)) -> dict[str, Any]:
+    if TTS_PROVIDER == "elevenlabs":
+        return {
+            "default_voice_id": os.getenv("ELEVENLABS_VOICE_ID", "hpp4J3VqNfWAUOO0d1Us"),
+            "voices": ELEVENLABS_VOICE_CATALOG,
+        }
     return {
-        "default_voice_id": os.getenv("ELEVENLABS_VOICE_ID", "hpp4J3VqNfWAUOO0d1Us"),
-        "voices": ELEVENLABS_VOICE_CATALOG,
+        "default_voice_id": os.getenv("SARVAM_SPEAKER", "kavya"),
+        "voices": SARVAM_VOICE_CATALOG,
     }
 
 
@@ -451,11 +474,15 @@ async def _place_call(lead: dict[str, Any]) -> dict[str, Any]:
 # Twilio Media Streams bot — same pipeline as twilio_bot.py, hosted here
 # ============================================================================
 
-def _resolve_eleven_key() -> str:
-    key = os.getenv("ELEVEN_API_KEY") or os.getenv("ELEVENLABS_API_KEY")
-    if not key:
-        raise RuntimeError("ELEVEN_API_KEY / ELEVENLABS_API_KEY not set")
-    return key
+def _to_language(pref: str | None) -> Language | None:
+    """Convert a language_pref string (e.g. 'ta-IN') to a pipecat Language enum.
+    Returns None for unknown/missing prefs so services fall back to auto-detect."""
+    if not pref:
+        return None
+    try:
+        return Language(pref)
+    except ValueError:
+        return None
 
 
 @app.get("/twiml")
@@ -504,14 +531,24 @@ async def ws_handler(websocket: WebSocket) -> None:
             lead_row = db.get_lead(call_row["lead_id"])
     lead_name = (lead_row or {}).get("name")
     lead_notes = (lead_row or {}).get("notes")
+    lead_lang = _to_language((lead_row or {}).get("language_pref"))  # e.g. Language.TA_IN
     # Per-lead agent persona; falls back to AGENT_NAME env (default "Priya").
     lead_agent_name = (lead_row or {}).get("agent_name") or os.getenv("AGENT_NAME") or "Priya"
-    voice_id = ((lead_row or {}).get("voice_id")
-                or os.getenv("ELEVENLABS_VOICE_ID", "hpp4J3VqNfWAUOO0d1Us"))
+    # Sarvam speaker name stored in voice_id column; falls back to SARVAM_SPEAKER env.
+    # Guard against stale ElevenLabs UUIDs stored in older leads — if the value
+    # isn't a known Sarvam speaker name, ignore it and use the default.
+    _raw_voice = (lead_row or {}).get("voice_id") or ""
+    speaker = _raw_voice if _raw_voice in _SARVAM_SPEAKERS else default_speaker()
 
-    log.info("stream=%s call=%s lead=%s call_id=%s voice=%s notes=%s",
-             stream_sid, call_sid, lead_name, call_id, voice_id,
-             "yes" if lead_notes else "no")
+    log.info("stream=%s call=%s lead=%s call_id=%s lang=%s speaker=%s notes=%s",
+             stream_sid, call_sid, lead_name, call_id,
+             lead_lang.value if lead_lang else "auto",
+             speaker, "yes" if lead_notes else "no")
+
+    from voice_agents.mlflow_tracker import CallTracker
+    _mlflow_call_id = call_id or f"anon-{stream_sid[:8]}"
+    tracker = CallTracker(_mlflow_call_id, lead_row)
+    tracker.start(transport="pipecat")
 
     if call_id:
         db.update_call(call_id, status="in-progress")
@@ -537,13 +574,7 @@ async def ws_handler(websocket: WebSocket) -> None:
         ),
     )
 
-    aiohttp_session = aiohttp.ClientSession()
-
-    stt = ElevenLabsSTTService(
-        api_key=_resolve_eleven_key(),
-        aiohttp_session=aiohttp_session,
-        model=os.getenv("ELEVENLABS_STT_MODEL_PIPECAT", "scribe_v2"),
-    )
+    stt, stt_cleanup = build_stt(lead_lang)
 
     llm_extra: dict[str, Any] = {}
     if os.getenv("LLM_DISABLE_THINKING", "1") == "1":
@@ -556,11 +587,7 @@ async def ws_handler(websocket: WebSocket) -> None:
         params=BaseOpenAILLMService.InputParams(extra=llm_extra),
     )
 
-    tts = ElevenLabsTTSService(
-        api_key=_resolve_eleven_key(),
-        voice_id=voice_id,
-        model=os.getenv("ELEVENLABS_TTS_MODEL", "eleven_turbo_v2_5"),
-    )
+    tts = build_tts(speaker, lead_lang)
 
     system_prompt = build_system_prompt(
         agent_name=lead_agent_name,
@@ -639,7 +666,7 @@ async def ws_handler(websocket: WebSocket) -> None:
         await runner.run(task)
     finally:
         convo_log.close()
-        await aiohttp_session.close()
+        await stt_cleanup()
         if call_id:
             await _finalize_call(call_id, call_sid)
         log.info("pipeline finished for call %s (call_id=%s)", call_sid, call_id)
@@ -700,6 +727,21 @@ async def _finalize_call(call_id: str, twilio_sid: str) -> None:
         await analyze_call(call_id)
     except Exception as e:
         log.warning("analyzer failed for %s: %s", call_id, e)
+
+    # End the MLflow run for this call
+    try:
+        from voice_agents.mlflow_tracker import get_tracker
+        tracker = get_tracker(call_id)
+        if tracker:
+            duration = None
+            try:
+                call_data = db.get_call(call_id)
+                duration = call_data.get("duration_seconds") if call_data else None
+            except Exception:
+                pass
+            tracker.end(duration_seconds=duration)
+    except Exception as exc:
+        log.warning("mlflow finalize failed (non-fatal): %s", exc)
 
 
 # ============================================================================

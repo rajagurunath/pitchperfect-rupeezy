@@ -154,10 +154,20 @@ export default function CallDetailPage() {
   const [call, setCall] = useState<CallDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [analyzeErr, setAnalyzeErr] = useState<string | null>(null);
 
   async function refresh() {
-    try { setCall(await api.call(id)); }
-    catch (e: any) { setErr(e.message); }
+    try {
+      const next = await api.call(id);
+      setCall(next);
+      setErr(null);
+      // The analyzer also runs server-side on hangup. If a summary
+      // arrived after a previous Re-analyze click failed, clear the
+      // stale failure banner — the result the user wanted is here.
+      if (next.summary) setAnalyzeErr(null);
+    } catch (e: any) {
+      setErr(e.message);
+    }
   }
   useEffect(() => {
     if (!id) return;
@@ -168,13 +178,16 @@ export default function CallDetailPage() {
   }, [id]);
 
   async function reanalyze() {
-    setBusy(true); setErr(null);
+    setBusy(true); setAnalyzeErr(null);
     try { await api.analyze(id); await refresh(); }
-    catch (e: any) { setErr(e.message); }
+    catch (e: any) { setAnalyzeErr(e.message ?? "Analyzer failed."); }
     finally { setBusy(false); }
   }
 
-  if (err) return <div className="text-hot text-sm">{err}</div>;
+  // Only fail the whole page on the *first* load. After we have a call,
+  // poll errors and reanalyze errors are shown inline so the user doesn't
+  // lose the transcript / timeline they were reading.
+  if (!call && err) return <div className="text-hot text-sm">{err}</div>;
   if (!call) return <div className="text-ink-mute text-sm">Loading…</div>;
 
   return (
@@ -193,6 +206,30 @@ export default function CallDetailPage() {
           <span className="text-ink-mute">{formatTime(call.started_at ?? call.created_at)}</span>
         </div>
       </div>
+
+      <Card className="border-accent/30 bg-accent-soft/30">
+        <CardHeader className="flex items-center justify-between">
+          <CardTitle>Call summary</CardTitle>
+          <div className="flex items-center gap-2">
+            <ScoreBadge score={call.score} />
+            <Button variant="secondary" disabled={busy} onClick={reanalyze}>
+              {busy ? "Running…" : "Re-analyze"}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {call.summary ? (
+            <p className="text-sm leading-relaxed">{call.summary}</p>
+          ) : (
+            <p className="text-sm text-ink-mute">
+              No summary yet. The analyzer runs automatically on hangup; if it didn’t fire, click Re-analyze.
+            </p>
+          )}
+          {analyzeErr && (
+            <p className="mt-3 text-xs text-hot">Re-analyze failed: {analyzeErr}</p>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle>Operations timeline</CardTitle></CardHeader>
@@ -241,24 +278,6 @@ export default function CallDetailPage() {
         </Card>
 
         <div className="space-y-6">
-          <Card>
-            <CardHeader className="flex items-center justify-between">
-              <CardTitle>Summary</CardTitle>
-              <Button variant="secondary" disabled={busy} onClick={reanalyze}>
-                {busy ? "Running…" : "Re-analyze"}
-              </Button>
-            </CardHeader>
-            <CardContent>
-              {call.summary ? (
-                <p className="text-sm leading-relaxed">{call.summary}</p>
-              ) : (
-                <p className="text-sm text-ink-mute">
-                  No summary yet. The analyzer runs automatically on hangup; if it didn’t fire, click Re-analyze.
-                </p>
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader><CardTitle>Recording</CardTitle></CardHeader>
             <CardContent>

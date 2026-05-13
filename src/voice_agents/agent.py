@@ -33,6 +33,7 @@ from livekit.agents import (
 from livekit.plugins import elevenlabs, noise_cancellation, openai, silero
 
 from .conversation_logger import ConversationLogger
+from .mlflow_tracker import CallTracker
 from .prompts import GREETING_INSTRUCTION, SYSTEM_PROMPT
 
 load_dotenv()
@@ -74,6 +75,17 @@ async def entrypoint(ctx: JobContext) -> None:
     if phone_number:
         await _place_outbound_call(ctx, phone_number)
 
+    # MLflow tracking for this LiveKit session
+    lk_call_id = ctx.room.name
+    lk_lead = {
+        "id": ctx.room.name,
+        "name": phone_number or "inbound",
+        "language_pref": None,
+        "agent_name": os.getenv("AGENT_NAME", "Priya"),
+    }
+    tracker = CallTracker(lk_call_id, lk_lead)
+    tracker.start(transport="livekit")
+
     session = AgentSession(
         vad=silero.VAD.load(),
         # ElevenLabs Scribe v2 realtime — Hindi, Hinglish, English all supported.
@@ -107,18 +119,21 @@ async def entrypoint(ctx: JobContext) -> None:
     )
     convo_logger.attach(session)
 
-    await session.start(
-        room=ctx.room,
-        agent=RupeezyAgent(),
-        room_input_options=RoomInputOptions(
-            noise_cancellation=noise_cancellation.BVCTelephony(),
-        ),
-    )
+    try:
+        await session.start(
+            room=ctx.room,
+            agent=RupeezyAgent(),
+            room_input_options=RoomInputOptions(
+                noise_cancellation=noise_cancellation.BVCTelephony(),
+            ),
+        )
 
-    # Speak first only on outbound calls — we placed the call, the lead
-    # answered, they expect us to talk first. On inbound, let the caller open.
-    if phone_number:
-        await session.generate_reply(instructions=GREETING_INSTRUCTION)
+        # Speak first only on outbound calls — we placed the call, the lead
+        # answered, they expect us to talk first. On inbound, let the caller open.
+        if phone_number:
+            await session.generate_reply(instructions=GREETING_INSTRUCTION)
+    finally:
+        tracker.end()
 
 
 def _build_llm() -> openai.LLM:
