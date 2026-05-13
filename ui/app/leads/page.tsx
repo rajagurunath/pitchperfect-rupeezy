@@ -154,7 +154,7 @@ export default function LeadsPage() {
                   </select>
                   <p className="text-[11px] text-ink-mute">
                     Persona, voice, language, and script saved from{" "}
-                    <Link href="/simulate" className="text-accent hover:underline">
+                    <Link href="/studio" className="text-accent hover:underline">
                       Studio
                     </Link>.
                   </p>
