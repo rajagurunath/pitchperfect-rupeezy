@@ -174,7 +174,7 @@ function Hero({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
           </div>
 
           <h1 className="font-serif font-medium text-[clamp(2.5rem,7vw,5.25rem)] leading-[0.95] tracking-tight">
-            AI that picks up <br />
+            Agent that picks up <br />
             the phone <span className="font-serif italic font-light text-accent">—</span> <br />
             in your <span className="relative inline-block align-baseline">
               <span
@@ -409,8 +409,8 @@ function Section({
   eyebrow, title, kicker, children, anchor,
 }: {
   eyebrow: string;
-  title: React.ReactNode;
-  kicker: string;
+  title?: React.ReactNode;
+  kicker?: string;
   children: React.ReactNode;
   anchor?: string;
 }) {
@@ -418,21 +418,27 @@ function Section({
   return (
     <section id={id} className="relative py-12 md:py-16">
       <div className="mx-auto max-w-7xl px-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-12 gap-y-8 mb-12">
-          <div className="lg:col-span-3">
-            <div className="text-[11px] tracking-[0.22em] text-accent font-semibold">
-              {eyebrow}
+        {(title || kicker) && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-12 gap-y-8 mb-12">
+            <div className="lg:col-span-3">
+              <div className="text-[11px] tracking-[0.22em] text-accent font-semibold">
+                {eyebrow}
+              </div>
+            </div>
+            <div className="lg:col-span-9">
+              {title && (
+                <h2 className="font-serif font-medium text-3xl md:text-5xl leading-[1.05] tracking-tight">
+                  {title}
+                </h2>
+              )}
+              {kicker && (
+                <p className="mt-5 max-w-2xl text-ink-mute leading-relaxed">
+                  {kicker}
+                </p>
+              )}
             </div>
           </div>
-          <div className="lg:col-span-9">
-            <h2 className="font-serif font-medium text-3xl md:text-5xl leading-[1.05] tracking-tight">
-              {title}
-            </h2>
-            <p className="mt-5 max-w-2xl text-ink-mute leading-relaxed">
-              {kicker}
-            </p>
-          </div>
-        </div>
+        )}
         {children}
       </div>
     </section>

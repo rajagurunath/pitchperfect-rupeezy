@@ -39,7 +39,7 @@ import requests
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Request, UploadFile, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from loguru import logger as loguru_logger
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import EndFrame, LLMRunFrame
@@ -134,6 +134,7 @@ class LeadIn(BaseModel):
     agent_name: str | None = Field(default=None, description="Agent persona name; null falls back to AGENT_NAME env")
     agent_id: str | None = Field(default=None, description="FK to agents.id; null = use default agent (or env)")
     notes: str | None = None
+    opening_line: str | None = Field(default=None, description="Spoken immediately via TTS when the call connects — eliminates the silent gap.")
 
 
 class LeadOut(LeadIn):
@@ -275,6 +276,7 @@ async def create_lead(lead: LeadIn,
         voice_id=lead.voice_id,
         agent_name=(lead.agent_name or "").strip() or None,
         agent_id=agent_id,
+        opening_line=(lead.opening_line or "").strip() or None,
     )
     return db.get_lead(lid)
 
@@ -496,6 +498,176 @@ async def get_public_handoff(token: str) -> dict[str, Any]:
         "analysis":   analysis,
         "transcript": transcript,
     }
+
+
+@app.get("/handoff/{token}", response_class=HTMLResponse)
+async def handoff_card_html(token: str):
+    """Public card page rendered server-side so the RM can open it directly
+    from the WhatsApp link without needing the Next.js dev server."""
+    from voice_agents.handoff import parse_card_token
+    import json as _json, html as _html
+
+    if token == "sample":
+        return HTMLResponse("<h2>Sample card — open a real handoff from the admin console.</h2>")
+
+    handoff_id = parse_card_token(token)
+    if not handoff_id:
+        return HTMLResponse("<h2>Invalid or expired link.</h2>", status_code=404)
+    handoff = db.get_handoff(handoff_id)
+    if not handoff:
+        return HTMLResponse("<h2>Handoff not found.</h2>", status_code=404)
+
+    call  = db.get_call(handoff["call_id"]) or {}
+    lead  = db.get_lead(handoff["lead_id"]) or {}
+    analysis: dict[str, Any] = {}
+    if call.get("analysis_json"):
+        try: analysis = _json.loads(call["analysis_json"])
+        except Exception: pass
+    transcript = db.list_turns(handoff["call_id"])
+    db.mark_handoff_opened(handoff_id)
+
+    score     = handoff.get("score") or "—"
+    lead_name = lead.get("name") or "Lead"
+    lead_ph   = lead.get("phone") or "—"
+    dur_s     = call.get("duration_seconds")
+    dur       = f"{dur_s // 60}m {dur_s % 60}s" if dur_s else "—"
+    summary   = _html.escape(analysis.get("summary") or call.get("summary") or "—")
+    key_sig   = _html.escape(analysis.get("key_signal") or "")
+    next_act  = _html.escape(analysis.get("next_action") or "")
+    interest  = analysis.get("interest_level")
+    sentiment = (analysis.get("sentiment") or "").capitalize()
+    score_color = {"HOT": "#ef4444", "WARM": "#f59e0b", "COLD": "#60a5fa"}.get(score, "#8a92a0")
+
+    objs_html = ""
+    for o in (analysis.get("objections_handled") or []):
+        q = _html.escape(str(o.get("objection", "")))
+        r = _html.escape(str(o.get("resolution", "")))
+        objs_html += f'<li><b>"{q}"</b><br><span style="color:#8a92a0">→ {r}</span></li>'
+
+    tx_html = ""
+    for t in transcript:
+        spk   = "Agent" if t.get("speaker") == "agent" else lead_name
+        color = "#5eead4" if t.get("speaker") == "agent" else "#e2e8f0"
+        tx_html += (
+            f'<div style="margin-bottom:12px">'
+            f'<div style="font-size:10px;color:#8a92a0;text-transform:uppercase;'
+            f'letter-spacing:.1em;margin-bottom:3px">{_html.escape(spk)}</div>'
+            f'<div style="color:{color}">{_html.escape(t.get("text",""))}</div>'
+            f'</div>'
+        )
+
+    page = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>PitchPerfect — {_html.escape(lead_name)}</title>
+<style>
+  *{{box-sizing:border-box;margin:0;padding:0}}
+  body{{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+        background:#0d1117;color:#e2e8f0;padding:20px;max-width:620px;margin:auto}}
+  .badge{{display:inline-block;padding:4px 12px;border-radius:99px;font-size:11px;
+          font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+          border:1px solid {score_color}40;color:{score_color};background:{score_color}18;margin-bottom:12px}}
+  h1{{font-size:28px;font-weight:600;margin-bottom:4px}}
+  .sub{{color:#8a92a0;font-size:13px;margin-bottom:20px}}
+  .grid{{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px}}
+  .stat{{background:#161b22;border:1px solid #21262d;border-radius:10px;padding:12px}}
+  .stat-label{{font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#8a92a0;margin-bottom:4px}}
+  .stat-value{{font-size:15px;font-weight:600}}
+  .card{{background:#161b22;border:1px solid #21262d;border-radius:12px;padding:16px;margin-bottom:14px}}
+  .card-title{{font-size:9px;text-transform:uppercase;letter-spacing:.15em;color:#8a92a0;margin-bottom:10px}}
+  .key-sig{{background:#5eead418;border:1px solid #5eead440;border-radius:10px;
+             padding:14px;margin-bottom:14px}}
+  .key-sig .card-title{{color:#5eead4}}
+  .key-sig p{{color:#e2e8f0;line-height:1.6}}
+  ul{{padding-left:18px;line-height:1.8}}
+  footer{{margin-top:24px;text-align:center;font-size:11px;color:#8a92a0}}
+</style>
+</head>
+<body>
+<div class="badge">{_html.escape(score)} LEAD</div>
+<h1>{_html.escape(lead_name)}</h1>
+<div class="sub">{_html.escape(lead_ph)}</div>
+
+<div class="grid">
+  <div class="stat"><div class="stat-label">Duration</div><div class="stat-value">{dur}</div></div>
+  <div class="stat"><div class="stat-label">Interest</div><div class="stat-value">{f"{interest}/10" if interest else "—"}</div></div>
+  <div class="stat"><div class="stat-label">Sentiment</div><div class="stat-value">{sentiment or "—"}</div></div>
+  <div class="stat"><div class="stat-label">Action</div><div class="stat-value">{"Call back 30m" if score=="HOT" else "WhatsApp" if score=="WARM" else "No follow-up"}</div></div>
+</div>
+
+{"<div class='key-sig'><div class='card-title'>Key signal</div><p>" + key_sig + "</p></div>" if key_sig else ""}
+
+<div class="card"><div class="card-title">Summary</div><p style="line-height:1.7;color:#cbd5e1">{summary}</p>
+{"<p style='margin-top:10px;color:#8a92a0'><b style='color:#e2e8f0'>Next action:</b> " + next_act + "</p>" if next_act else ""}
+</div>
+
+{"<div class='card'><div class='card-title'>Objections handled</div><ul>" + objs_html + "</ul></div>" if objs_html else ""}
+
+{"<div class='card'><div class='card-title'>Transcript · " + str(len(transcript)) + " turns</div>" + tx_html + "</div>" if transcript else ""}
+
+<footer>PitchPerfect context card</footer>
+</body></html>"""
+
+    return HTMLResponse(page)
+
+
+# ============================================================================
+# WhatsApp outbound message
+# ============================================================================
+
+class WhatsAppSendBody(BaseModel):
+    from_number: str   # E.164, e.g. +14155238886
+    to_number: str     # E.164, e.g. +919876543210
+    message: str
+
+@app.post("/api/calls/{call_id}/twilio-status")
+async def twilio_status_callback(call_id: str, request: Request):
+    """Twilio posts here when a call reaches a terminal state. Used as a
+    safety net: if the WebSocket pipeline never ran, the lead status would
+    be stuck on 'calling' — this clears it regardless."""
+    form = await request.form()
+    status = (form.get("CallStatus") or "").lower()
+    terminal = {"completed", "busy", "no-answer", "canceled", "failed"}
+    if status in terminal:
+        call = db.get_call(call_id)
+        if call and call.get("lead_id"):
+            lead = db.get_lead(call["lead_id"])
+            if lead and lead.get("status") == "calling":
+                db.update_lead_status(call["lead_id"], "done")
+                log.info("twilio-status callback: lead %s → done (call_status=%s)",
+                         call["lead_id"], status)
+    return {"ok": True}
+
+
+@app.get("/api/whatsapp/config")
+async def whatsapp_config(_user: dict = Depends(require_user)):
+    """Return the configured WhatsApp sender number (plain E.164, no whatsapp: prefix)."""
+    raw = os.getenv("TWILIO_WHATSAPP_FROM", "")
+    number = raw.replace("whatsapp:", "").strip()
+    return {"from_number": number}
+
+
+@app.post("/api/whatsapp/send")
+async def whatsapp_send(body: WhatsAppSendBody, _user: dict = Depends(require_user)):
+    """Send a WhatsApp message via Twilio. Numbers are passed as plain E.164;
+    the whatsapp: prefix is added here."""
+    sid_acc = os.getenv("TWILIO_ACCOUNT_SID", "")
+    sid_tok = os.getenv("TWILIO_AUTH_TOKEN", "")
+    if not sid_acc or not sid_tok:
+        raise HTTPException(503, "Twilio credentials not configured")
+
+    from_wa = f"whatsapp:{body.from_number}" if not body.from_number.startswith("whatsapp:") else body.from_number
+    to_wa   = f"whatsapp:{body.to_number}"   if not body.to_number.startswith("whatsapp:")   else body.to_number
+
+    client = TwilioClient(sid_acc, sid_tok)
+    try:
+        msg = client.messages.create(from_=from_wa, to=to_wa, body=body.message)
+    except TwilioRestException as e:
+        raise HTTPException(502, f"twilio error {e.code}: {e.msg}")
+
+    log.info("whatsapp sent sid=%s to=%s", msg.sid, body.to_number)
+    return {"sid": msg.sid, "status": msg.status}
 
 
 # ============================================================================
@@ -1246,17 +1418,22 @@ async def _place_call(lead: dict[str, Any]) -> dict[str, Any]:
     # call_id is enough for the bot — it loads notes and voice_id from
     # SQLite by call_id → lead_id, avoiding payload-in-URL footguns.
     from xml.sax.saxutils import escape as xml_escape
+    opening_line = (lead.get("opening_line") or "").strip()
+    say_text = opening_line or (
+        f'Connecting you to {xml_escape(os.getenv("AGENT_NAME", "Priya"))} from '
+        f'{xml_escape(os.getenv("AGENT_BRAND", "Rupeezy"))}.'
+    )
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<Response>'
         '<Pause length="1"/>'
         '<Say voice="Polly.Aditi" language="hi-IN">'
-        f'Connecting you to {xml_escape(os.getenv("AGENT_NAME", "Priya"))} from '
-        f'{xml_escape(os.getenv("AGENT_BRAND", "Rupeezy"))}.'
+        f'{xml_escape(say_text)}'
         '</Say>'
         f'<Connect><Stream url="{ws_url}">'
         f'<Parameter name="call_id" value="{xml_escape(call_id)}"/>'
-        '</Stream></Connect>'
+        + (f'<Parameter name="opening_line" value="{xml_escape(opening_line)}"/>' if opening_line else '')
+        + '</Stream></Connect>'
         '</Response>'
     )
 
@@ -1266,9 +1443,9 @@ async def _place_call(lead: dict[str, Any]) -> dict[str, Any]:
             twiml=twiml,
             to=lead["phone"],
             from_=from_no,
-            # Recording is OFF by default to save cost. Flip
-            # TWILIO_RECORD_CALLS=1 in .env when you want call audio archived.
             record=os.getenv("TWILIO_RECORD_CALLS", "0") == "1",
+            status_callback=f"{base}/api/calls/{call_id}/twilio-status",
+            status_callback_method="POST",
         )
     except TwilioRestException as e:
         db.update_call(call_id, status="failed",
@@ -1334,6 +1511,7 @@ async def ws_handler(websocket: WebSocket) -> None:
     call_sid = start["start"]["callSid"]
     custom_params = start["start"].get("customParameters", {}) or {}
     call_id = custom_params.get("call_id")
+    opening_line_param = custom_params.get("opening_line", "").strip()
 
     # Re-load lead context from DB so we can use the admin-supplied notes
     # and per-lead voice without stuffing them into the TwiML <Parameter>s.
@@ -1488,12 +1666,15 @@ async def ws_handler(websocket: WebSocket) -> None:
     except Exception as exc:
         log.warning("runtime prompt log failed (non-fatal): %s", exc)
 
-    context = LLMContext(
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "system", "content": greeting},
-        ]
-    )
+    init_messages: list[dict] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "system", "content": greeting},
+    ]
+    if opening_line_param:
+        # Agent already spoke via Twilio <Say> — seed context so LLM knows.
+        init_messages.append({"role": "assistant", "content": opening_line_param})
+
+    context = LLMContext(messages=init_messages)
     context_aggregator = LLMContextAggregatorPair(context)
 
     convo_log = ConversationLog(
@@ -1529,8 +1710,15 @@ async def ws_handler(websocket: WebSocket) -> None:
 
     @transport.event_handler("on_client_connected")
     async def _on_connected(_t, _ws):
-        log.info("client fully connected — kicking off greeting (call_id=%s)", call_id)
-        await task.queue_frames([LLMRunFrame()])
+        log.info("client fully connected (call_id=%s)", call_id)
+        if opening_line_param:
+            # Opening already spoken by Twilio <Say> — log it and wait for lead.
+            convo_log.flush_assistant()  # no-op buffer clear
+            if call_id:
+                from voice_agents.db import append_turn
+                append_turn(call_id, "agent", opening_line_param, None)
+        else:
+            await task.queue_frames([LLMRunFrame()])
 
     @transport.event_handler("on_client_disconnected")
     async def _on_disconnected(_t, _ws):
@@ -1600,13 +1788,8 @@ async def _finalize_call(call_id: str, twilio_sid: str) -> None:
     #     fired (engagement signal — picked up but bailed without talking);
     #   - else mirror Twilio's terminal status (no_answer / busy / failed /
     #     canceled).
-    events = {e["stage"] for e in db.list_events(call_id)}
     if twcall_status == "completed":
-        if "user_spoke" in events:
-            db.record_event(call_id, "completed")
-        else:
-            db.record_event(call_id, "dropped_early",
-                            detail="answered but lead never spoke")
+        db.record_event(call_id, "completed")
     elif twcall_status in ("no-answer", "busy", "failed", "canceled"):
         db.record_event(call_id, twcall_status.replace("-", "_"))
     else:

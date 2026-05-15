@@ -62,7 +62,7 @@ def parse_card_token(token: str) -> str | None:
 
 
 def channel_for_score(score: str) -> str:
-    """HOT → call back; WARM → WhatsApp chat. COLD never reaches here."""
+    """HOT → call back; WARM/COLD → WhatsApp."""
     return "call" if score == "HOT" else "whatsapp"
 
 
@@ -98,8 +98,8 @@ def _build_message(score: str, lead: dict[str, Any],
                    analysis: dict[str, Any], url: str) -> str:
     """The plain-text body of the WhatsApp message. Kept short — the link
     is what actually carries the context."""
-    emoji = "🔥" if score == "HOT" else "🟡"
-    label = "HOT LEAD" if score == "HOT" else "WARM LEAD"
+    emoji = "🔥" if score == "HOT" else "🟡" if score == "WARM" else "🔵"
+    label = f"{score} LEAD"
     name = lead.get("name") or "Lead"
     phone = lead.get("phone") or ""
     interest = analysis.get("interest_level")
@@ -109,7 +109,8 @@ def _build_message(score: str, lead: dict[str, Any],
     if len(key) > 220:
         key = key[:217] + "…"
     action = ("Call back within 30 min." if score == "HOT"
-              else "WhatsApp follow-up.")
+              else "WhatsApp follow-up." if score == "WARM"
+              else "No follow-up needed.")
     return (
         f"{emoji} {label} — {name} ({phone})\n"
         f"{interest_line}{action}\n"
@@ -124,6 +125,8 @@ def _send_whatsapp(to_phone: str, body: str) -> tuple[bool, str | None, str | No
     token = os.getenv("TWILIO_AUTH_TOKEN")
     sender = (os.getenv("TWILIO_WHATSAPP_FROM")
               or "whatsapp:+14155238886")  # Twilio sandbox sender
+    if not sender.startswith("whatsapp:"):
+        sender = f"whatsapp:{sender}"
     if not sid or not token:
         return False, None, "TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN not set"
     try:
@@ -147,8 +150,8 @@ async def dispatch_handoff(call_id: str) -> dict[str, Any] | None:
         log.warning("dispatch_handoff: call %s missing", call_id)
         return None
     score = call.get("score")
-    if score not in ("HOT", "WARM"):
-        log.info("dispatch_handoff: %s score=%r — skipping", call_id, score)
+    if not score:
+        log.info("dispatch_handoff: %s no score yet — skipping", call_id)
         return None
 
     rm_phone = os.getenv("RM_WHATSAPP_NUMBER", "").strip() or None
@@ -180,17 +183,32 @@ async def dispatch_handoff(call_id: str) -> dict[str, Any] | None:
         except Exception:
             pass
 
+    lead_phone = call.get("lead_phone") or lead.get("phone") or ""
+    lead_name  = call.get("lead_name")  or lead.get("name")  or "there"
+
+    # For WARM calls: send signup link directly to the lead.
+    if score == "WARM" and lead_phone:
+        signup_body = (
+            f"It was nice talking to you, {lead_name}! "
+            f"Here is the sign-up link to become Rupeezy's Authorised Person partner:\n\n"
+            f"https://rupeezy.in/authorized-person\n\n"
+            f"Feel free to reach out if you have any questions."
+        )
+        ok_lead, _, err_lead = _send_whatsapp(lead_phone, signup_body)
+        if ok_lead:
+            log.info("signup link sent to lead %s for call %s", lead_phone, call_id)
+        else:
+            log.warning("signup link to lead failed: call=%s err=%s", call_id, err_lead)
+
+    body = _build_message(score, {"name": lead_name, "phone": lead_phone},
+                          analysis, card_url(token))
+
     if not rm_phone:
         db.mark_handoff_failed(handoff_id, "RM_WHATSAPP_NUMBER not set")
         log.warning("dispatch_handoff: %s skipped — RM_WHATSAPP_NUMBER missing",
                     call_id)
         return db.get_handoff(handoff_id)
 
-    body = _build_message(score, {**lead, "name": call.get("lead_name")
-                                  or lead.get("name"),
-                                  "phone": call.get("lead_phone")
-                                  or lead.get("phone")},
-                          analysis, card_url(token))
     ok, twilio_sid, err = _send_whatsapp(rm_phone, body)
     if ok:
         db.mark_handoff_sent(handoff_id, twilio_sid)

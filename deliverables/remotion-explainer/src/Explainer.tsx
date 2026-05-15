@@ -160,10 +160,10 @@ const TitleScene: React.FC = () => {
       {/* Headline */}
       <div style={{ position: "absolute", top: 260, left: 90, width: 1100, ...headline }}>
         <h1 style={{
-          fontFamily: SERIF, fontWeight: 600, fontSize: 92,
+          fontFamily: SERIF, fontWeight: 500, fontSize: 80,
           color: C.light, lineHeight: 1.02, margin: 0, letterSpacing: -1,
         }}>
-          AI that picks up<br/>
+          Picks up<br/>
           the phone <span style={{ fontStyle: "italic", fontWeight: 400, color: C.accent }}>—</span> in your<br/>
           <span style={{ fontStyle: "italic", fontWeight: 400, color: C.accent }}>partner&apos;s</span> language.
         </h1>

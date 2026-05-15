@@ -16,6 +16,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api, agentsApi, studioApi, Agent, AgentVersion, SimulatePersona, StudioTrial } from "@/lib/api";
+import { loadCampaigns, type Campaign } from "@/lib/campaigns";
 import { getToken } from "@/lib/auth";
 import {
   Button,
@@ -75,23 +76,32 @@ const LANGUAGES = [
   { value: "pa-IN", label: "Punjabi (pa-IN)" },
 ];
 
-const VOICES = [
-  { value: "kavya",  label: "Kavya · F · warm" },
-  { value: "priya",  label: "Priya · F · neutral" },
-  { value: "neha",   label: "Neha · F · bright" },
-  { value: "pooja",  label: "Pooja · F · calm" },
-  { value: "ritu",   label: "Ritu · F · energetic" },
-  { value: "shubh",  label: "Shubh · M · neutral" },
-  { value: "rahul",  label: "Rahul · M · friendly" },
-  { value: "amit",   label: "Amit · M · authoritative" },
-  { value: "kabir",  label: "Kabir · M · warm" },
-];
 
 const OPENERS = [
   { value: "benefits", label: "Lead with benefits (100% brokerage + daily payout)" },
   { value: "social_proof", label: "Social proof (1000+ APs already onboarded)" },
   { value: "question", label: "Curiosity question (current brokerage rate?)" },
 ];
+
+const TONE_VOICES: { gender: "F" | "M"; tone: string; voice: string }[] = [
+  { gender: "F", tone: "warm",          voice: "kavya" },
+  { gender: "F", tone: "neutral",       voice: "priya" },
+  { gender: "F", tone: "bright",        voice: "neha" },
+  { gender: "F", tone: "calm",          voice: "pooja" },
+  { gender: "F", tone: "energetic",     voice: "ritu" },
+  { gender: "M", tone: "neutral",       voice: "shubh" },
+  { gender: "M", tone: "friendly",      voice: "rahul" },
+  { gender: "M", tone: "authoritative", voice: "amit" },
+  { gender: "M", tone: "warm",          voice: "kabir" },
+];
+
+function voiceLabel(voiceId: string | null | undefined): string {
+  const entry = TONE_VOICES.find((t) => t.voice === voiceId);
+  if (!entry) return voiceId ?? "";
+  const gender = entry.gender === "F" ? "Female" : "Male";
+  const tone = entry.tone.charAt(0).toUpperCase() + entry.tone.slice(1);
+  return `${gender} · ${tone}`;
+}
 
 // ── page shell ──────────────────────────────────────────────────────────────
 
@@ -164,7 +174,7 @@ export default function SimulatePage() {
       />
 
       <div className="grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]">
-        <PersonaSidebar persona={persona} onChange={setPersona} />
+        <PersonaSidebar persona={persona} onChange={setPersona} agents={agents} onLoadAgent={loadAgent} />
 
         {mode === "text" ? (
           <TextStage persona={persona} agentId={loadedAgentId} />
@@ -175,6 +185,7 @@ export default function SimulatePage() {
 
       <RuntimePromptPreview persona={persona} />
       <PromptsPanel agentId={loadedAgentId} />
+      <WhatsAppPanel />
     </div>
   );
 }
@@ -199,36 +210,59 @@ function AgentSwitcher({
   const loaded = agents.find((a) => a.id === loadedAgentId) ?? null;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [showSaveAs, setShowSaveAs] = useState(false);
+
+  // — create form state —
+  const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
   const [makeDefault, setMakeDefault] = useState(false);
+  const [createGender, setCreateGender] = useState<"F" | "M">("F");
+  const [createTone, setCreateTone] = useState("neutral");
+
+  // — edit form state —
+  const [showEdit, setShowEdit] = useState(false);
+  const [editGender, setEditGender] = useState<"F" | "M">("F");
+  const [editTone, setEditTone] = useState("neutral");
+
+  const tonesForGender = TONE_VOICES.filter((t) => t.gender === createGender).map((t) => t.tone);
+  const tonesForEditGender = TONE_VOICES.filter((t) => t.gender === editGender).map((t) => t.tone);
+
+  const resolvedVoice = TONE_VOICES.find(
+    (t) => t.gender === createGender && t.tone === createTone
+  )?.voice ?? "kavya";
+  const resolvedEditVoice = TONE_VOICES.find(
+    (t) => t.gender === editGender && t.tone === editTone
+  )?.voice ?? loaded?.voice_id ?? "kavya";
+
+  function handleGenderChange(g: "F" | "M") {
+    setCreateGender(g);
+    setCreateTone(TONE_VOICES.find((t) => t.gender === g)?.tone ?? "neutral");
+  }
+
+  function handleEditGenderChange(g: "F" | "M") {
+    setEditGender(g);
+    setEditTone(TONE_VOICES.find((t) => t.gender === g)?.tone ?? "neutral");
+  }
+
+  function openEdit() {
+    if (!loaded) return;
+    const entry = TONE_VOICES.find((t) => t.voice === loaded.voice_id);
+    setEditGender(entry?.gender ?? "F");
+    setEditTone(entry?.tone ?? "neutral");
+    setShowEdit(true);
+  }
 
   function personaToAgentFields() {
     return {
       agent_name:     persona.agent_name || null,
       brand:          persona.brand || null,
-      voice_id:       persona.voice_id || null,
+      voice_id:       resolvedVoice,
       language_pref:  persona.language_pref || null,
       opener_variant: persona.opener_variant || null,
       custom_opener:  persona.custom_opener || null,
     };
   }
 
-  async function saveExisting() {
-    if (!loaded) return;
-    setBusy(true); setErr(null);
-    try {
-      const updated = await agentsApi.update(loaded.id, {
-        name: loaded.name,
-        ...personaToAgentFields(),
-      });
-      await onAfterSave(updated);
-    } catch (e: any) {
-      setErr(e?.message ?? String(e));
-    } finally { setBusy(false); }
-  }
-
-  async function saveAs() {
+  async function createAgent() {
     setBusy(true); setErr(null);
     try {
       const created = await agentsApi.create({
@@ -237,9 +271,26 @@ function AgentSwitcher({
         is_default: makeDefault,
       });
       await onAfterSave(created);
-      setShowSaveAs(false);
+      setShowCreate(false);
       setNewName("");
       setMakeDefault(false);
+      setCreateGender("F");
+      setCreateTone("neutral");
+    } catch (e: any) {
+      setErr(e?.message ?? String(e));
+    } finally { setBusy(false); }
+  }
+
+  async function updateAgent() {
+    if (!loaded) return;
+    setBusy(true); setErr(null);
+    try {
+      const updated = await agentsApi.update(loaded.id, {
+        name: loaded.name,
+        voice_id: resolvedEditVoice,
+      });
+      await onAfterSave(updated);
+      setShowEdit(false);
     } catch (e: any) {
       setErr(e?.message ?? String(e));
     } finally { setBusy(false); }
@@ -259,10 +310,11 @@ function AgentSwitcher({
 
   return (
     <Card>
-      <CardContent className="flex flex-wrap items-center gap-3 py-4">
+      <CardContent className="flex flex-wrap items-center gap-4 py-4">
+        {/* Select existing */}
         <div className="flex flex-col">
           <Label className="text-[10px] uppercase tracking-widest text-ink-mute">
-            Load agent
+            Select agent
           </Label>
           <select
             value={loadedAgentId ?? ""}
@@ -272,78 +324,153 @@ function AgentSwitcher({
             }}
             className="mt-1 min-w-[240px] rounded-md bg-ink border border-ink-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent/60"
           >
-            <option value="">— New / unsaved —</option>
+            <option value="">— No agent loaded —</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>
-                {a.name}{a.is_default ? "  ★" : ""}  · v{a.version}
+                {a.name}{a.is_default ? " ★" : ""}
               </option>
             ))}
           </select>
         </div>
 
-        {loaded && (
-          <div className="flex flex-col">
-            <div className="text-[10px] uppercase tracking-widest text-ink-mute">
-              Current version
-            </div>
-            <div className="mt-1 font-mono text-sm text-ink-text">
-              v{loaded.version}
-            </div>
-          </div>
-        )}
-
         <div className="grow" />
 
         <div className="flex items-center gap-2">
-          {loaded && (
+          {loaded && !showEdit && (
             <>
-              <Button variant="secondary" disabled={busy} onClick={saveExisting}>
-                Save changes (v{loaded.version + 1})
+              <Button variant="secondary" disabled={busy} onClick={openEdit}>
+                Edit
               </Button>
-              <Button variant="ghost" disabled={busy} onClick={destroy}>
+              <Button variant="ghost" disabled={busy} onClick={destroy} className="text-hot hover:text-hot">
                 Delete
               </Button>
             </>
           )}
-          <Button disabled={busy} onClick={() => setShowSaveAs(true)}>
-            Save as…
-          </Button>
+          {!showCreate && !showEdit && (
+            <Button disabled={busy} onClick={() => setShowCreate(true)}>
+              + New agent
+            </Button>
+          )}
         </div>
 
         {err && <div className="basis-full text-xs text-hot">{err}</div>}
 
-        {showSaveAs && (
-          <div className="basis-full flex flex-wrap items-end gap-3 pt-3 border-t border-ink-line/60">
-            <div className="flex flex-col">
-              <Label className="text-[10px] uppercase tracking-widest text-ink-mute">
-                New agent name
-              </Label>
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Diwali campaign — Tamil"
-                className="mt-1 min-w-[280px]"
-              />
+        {showEdit && loaded && (
+          <div className="basis-full pt-3 border-t border-ink-line/60 space-y-4">
+            <div className="text-[10px] uppercase tracking-widest text-ink-mute">
+              Editing: <span className="text-ink-text">{loaded.name}</span>
             </div>
-            <label className="flex items-center gap-2 text-xs text-ink-text mb-2">
-              <input
-                type="checkbox"
-                checked={makeDefault}
-                onChange={(e) => setMakeDefault(e.target.checked)}
-              />
-              Make this the default agent for new leads
-            </label>
-            <div className="grow" />
-            <Button
-              variant="secondary"
-              disabled={busy}
-              onClick={() => { setShowSaveAs(false); setNewName(""); }}
-            >
-              Cancel
-            </Button>
-            <Button disabled={busy || !newName.trim()} onClick={saveAs}>
-              {busy ? "Saving…" : "Save agent"}
-            </Button>
+            <div className="grid grid-cols-2 gap-3 max-w-xs">
+              <div className="flex flex-col">
+                <Label className="text-[10px] uppercase tracking-widest text-ink-mute mb-1">Gender</Label>
+                <div className="flex rounded-md border border-ink-line overflow-hidden text-sm h-[38px]">
+                  {(["F", "M"] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => handleEditGenderChange(g)}
+                      className={`flex-1 transition-colors ${
+                        editGender === g
+                          ? "bg-accent text-ink font-semibold"
+                          : "bg-ink text-ink-mute hover:bg-ink-line"
+                      }`}
+                    >
+                      {g === "F" ? "Female" : "Male"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex flex-col">
+                <Label className="text-[10px] uppercase tracking-widest text-ink-mute mb-1">Tone</Label>
+                <select
+                  value={editTone}
+                  onChange={(e) => setEditTone(e.target.value)}
+                  className="rounded-md bg-ink border border-ink-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent/60"
+                >
+                  {tonesForEditGender.map((t) => (
+                    <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" disabled={busy} onClick={() => setShowEdit(false)}>Cancel</Button>
+              <Button disabled={busy} onClick={updateAgent}>{busy ? "Saving…" : "Save changes"}</Button>
+            </div>
+          </div>
+        )}
+
+        {showCreate && (
+          <div className="basis-full pt-3 border-t border-ink-line/60 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {/* Name */}
+              <div className="flex flex-col lg:col-span-2">
+                <Label className="text-[10px] uppercase tracking-widest text-ink-mute mb-1">Agent name</Label>
+                <Input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="e.g. Pooja"
+                  autoFocus
+                />
+              </div>
+
+              {/* Gender */}
+              <div className="flex flex-col">
+                <Label className="text-[10px] uppercase tracking-widest text-ink-mute mb-1">Gender</Label>
+                <div className="flex rounded-md border border-ink-line overflow-hidden text-sm h-[38px]">
+                  {(["F", "M"] as const).map((g) => (
+                    <button
+                      key={g}
+                      type="button"
+                      onClick={() => handleGenderChange(g)}
+                      className={`flex-1 transition-colors ${
+                        createGender === g
+                          ? "bg-accent text-ink font-semibold"
+                          : "bg-ink text-ink-mute hover:bg-ink-line"
+                      }`}
+                    >
+                      {g === "F" ? "Female" : "Male"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tone */}
+              <div className="flex flex-col">
+                <Label className="text-[10px] uppercase tracking-widest text-ink-mute mb-1">Tone</Label>
+                <select
+                  value={createTone}
+                  onChange={(e) => setCreateTone(e.target.value)}
+                  className="rounded-md bg-ink border border-ink-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent/60"
+                >
+                  {tonesForGender.map((t) => (
+                    <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-xs text-ink-text">
+                <input
+                  type="checkbox"
+                  checked={makeDefault}
+                  onChange={(e) => setMakeDefault(e.target.checked)}
+                />
+                Set as default agent for new leads
+              </label>
+              <div className="grow" />
+              <Button
+                variant="secondary"
+                disabled={busy}
+                onClick={() => { setShowCreate(false); setNewName(""); setMakeDefault(false); setCreateGender("F"); setCreateTone("neutral"); }}
+              >
+                Cancel
+              </Button>
+              <Button disabled={busy || !newName.trim()} onClick={createAgent}>
+                {busy ? "Creating…" : "Create agent"}
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>
@@ -380,10 +507,28 @@ function ModeTab({
 function PersonaSidebar({
   persona,
   onChange,
+  agents,
+  onLoadAgent,
 }: {
   persona: SimulatePersona;
   onChange: (p: SimulatePersona) => void;
+  agents: Agent[];
+  onLoadAgent: (a: Agent) => void;
 }) {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+
+  useEffect(() => { setCampaigns(loadCampaigns()); }, []);
+
+  function applyCampaign(id: string) {
+    setSelectedCampaignId(id);
+    if (!id) return;
+    const c = campaigns.find((x) => x.id === id);
+    if (!c) return;
+    const context = [c.description, c.details].filter(Boolean).join("\n\n");
+    onChange({ ...persona, lead_notes: context });
+  }
+
   function set<K extends keyof SimulatePersona>(k: K, v: SimulatePersona[K]) {
     onChange({ ...persona, [k]: v });
   }
@@ -394,19 +539,41 @@ function PersonaSidebar({
         <CardTitle>Campaign config</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <Section title="Persona">
-          <Field label="Agent name">
-            <Input
-              value={persona.agent_name ?? ""}
-              onChange={(e) => set("agent_name", e.target.value)}
-            />
+        <Section title="Campaign">
+          <Field label="Select campaign" hint="Loads campaign context into lead notes below.">
+            <select
+              value={selectedCampaignId}
+              onChange={(e) => applyCampaign(e.target.value)}
+              className="w-full rounded-md bg-ink border border-ink-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent/60"
+            >
+              <option value="">— No campaign —</option>
+              {campaigns.map((c) => (
+                <option key={c.id} value={c.id}>{c.title}</option>
+              ))}
+            </select>
           </Field>
-          <Field label="Voice">
-            <Select
-              value={persona.voice_id ?? ""}
-              onChange={(v) => set("voice_id", v)}
-              options={VOICES}
-            />
+        </Section>
+
+        <Divider />
+
+        <Section title="Persona">
+          <Field label="Agent">
+            <select
+              value={agents.find((a) => a.agent_name === persona.agent_name)?.id ?? ""}
+              onChange={(e) => {
+                const a = agents.find((x) => x.id === e.target.value);
+                if (a) onLoadAgent(a);
+                else set("agent_name", "");
+              }}
+              className="w-full rounded-md bg-ink border border-ink-line px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-accent/60"
+            >
+              <option value="">— Select agent —</option>
+              {agents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}{a.is_default ? " ★" : ""} · {voiceLabel(a.voice_id)}
+                </option>
+              ))}
+            </select>
           </Field>
           <Field label="Language">
             <Select
@@ -454,7 +621,7 @@ function PersonaSidebar({
           </Field>
           <Field
             label="Notes"
-            hint="Background only — never read out loud."
+           
           >
             <Textarea
               rows={3}
@@ -698,7 +865,7 @@ function TextTimeline({ history }: { history: ChatTurn[] }) {
   return (
     <Card className="self-start sticky top-6">
       <CardHeader>
-        <CardTitle>Turn timeline</CardTitle>
+        <CardTitle>Transcript</CardTitle>
       </CardHeader>
       <CardContent>
         {history.length === 0 ? (
@@ -1318,6 +1485,80 @@ function PromptsPanel({ agentId }: { agentId: string | null }) {
             ))}
           </div>
         )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── WhatsApp follow-up panel ─────────────────────────────────────────────────
+
+const WA_DEFAULT_MESSAGE =
+  `It was nice talking to you! Here is the sign-up link to become Rupeezy's Authorised Person partner:\n\nhttps://rupeezy.in/authorized-person\n\nFeel free to reach out if you have any questions.`;
+
+function WhatsAppPanel() {
+  const [from, setFrom] = useState("");
+  const [to, setTo]     = useState("");
+  const [message, setMessage] = useState(WA_DEFAULT_MESSAGE);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  useEffect(() => {
+    api.whatsappConfig().then((c) => { if (c.from_number) setFrom(c.from_number); }).catch(() => {});
+  }, []);
+
+  async function send() {
+    if (!from.trim() || !to.trim() || !message.trim()) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await api.sendWhatsApp({
+        from_number: from.trim(),
+        to_number: to.trim(),
+        message: message.trim(),
+      });
+      setResult({ ok: true, text: `Sent · SID ${res.sid} · ${res.status}` });
+    } catch (e: any) {
+      setResult({ ok: false, text: e.message ?? "Failed to send" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <span className="text-base">💬</span> WhatsApp Follow-up
+        </CardTitle>
+        <p className="text-xs text-ink-mute mt-0.5">
+          Send a follow-up message with the Rupeezy AP sign-up link via your WhatsApp Business number.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4 max-w-2xl">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Field label="From — Business number" hint="Set TWILIO_WHATSAPP_FROM in .env. Format: +91 followed by 10 digits, e.g. +919876543210">
+            <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="+919876543210" />
+          </Field>
+          <Field label="To — Recipient number" hint="+91 followed by 10 digits, no spaces. e.g. +919444531354">
+            <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="+919444531354" />
+          </Field>
+        </div>
+        <Field label="Message">
+          <Textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} />
+        </Field>
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={send}
+            disabled={busy || !from.trim() || !to.trim() || !message.trim()}
+          >
+            {busy ? "Sending…" : "Send WhatsApp"}
+          </Button>
+          {result && (
+            <span className={`text-xs ${result.ok ? "text-accent" : "text-hot"}`}>
+              {result.text}
+            </span>
+          )}
+        </div>
       </CardContent>
     </Card>
   );

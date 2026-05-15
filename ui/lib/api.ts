@@ -13,6 +13,7 @@ export type Lead = {
   agent_name: string | null;
   agent_id: string | null;
   notes: string | null;
+  opening_line: string | null;
   status: "queued" | "calling" | "done" | "dnd";
   created_at: string;
   updated_at: string;
@@ -117,7 +118,7 @@ export const api = {
     asJson<Lead[]>(
       fetch(`/api/leads${status ? `?status=${status}` : ""}`, { cache: "no-store", headers: authHeaders() }),
     ),
-  createLead: (body: { name: string; phone: string; language_pref?: string; voice_id?: string; agent_name?: string; agent_id?: string; notes?: string }) =>
+  createLead: (body: { name: string; phone: string; language_pref?: string; voice_id?: string; agent_name?: string; agent_id?: string; notes?: string; opening_line?: string }) =>
     asJson<Lead>(
       fetch("/api/leads", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(body) }),
     ),
@@ -145,9 +146,14 @@ export const api = {
       fetch(`/api/calls/batch?limit=${limit}`, { method: "POST", headers: authHeaders() }),
     ),
   calls: (params?: { lead_id?: string; score?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>);
+    const qs = new URLSearchParams(
+      Object.fromEntries(
+        Object.entries(params ?? {}).filter(([, v]) => v !== undefined && v !== null)
+      ) as Record<string, string>
+    );
+    const search = qs.toString();
     return asJson<Call[]>(
-      fetch(`/api/calls?${qs.toString()}`, { cache: "no-store", headers: authHeaders() }),
+      fetch(`/api/calls${search ? `?${search}` : ""}`, { cache: "no-store", headers: authHeaders() }),
     );
   },
   call: (id: string) =>
@@ -201,6 +207,12 @@ export const api = {
     asJson<{ count: number }>(fetch("/api/handoffs/today", {
       cache: "no-store", headers: authHeaders(),
     })),
+  whatsappConfig: () =>
+    asJson<{ from_number: string }>(fetch("/api/whatsapp/config", { headers: authHeaders() })),
+  sendWhatsApp: (body: { from_number: string; to_number: string; message: string }) =>
+    asJson<{ sid: string; status: string }>(
+      fetch("/api/whatsapp/send", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(body) }),
+    ),
 };
 
 export type Handoff = {

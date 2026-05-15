@@ -137,8 +137,7 @@ class UserTranscriptLogger(FrameProcessor):
         await super().process_frame(frame, direction)
         if isinstance(frame, TranscriptionFrame):
             text = (frame.text or "").strip()
-            finalized = getattr(frame, "finalized", True)
-            if text and finalized:
+            if text:
                 self._log.append_user(text, getattr(frame, "language", None))
         await self.push_frame(frame, direction)
 
