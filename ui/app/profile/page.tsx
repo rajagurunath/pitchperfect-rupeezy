@@ -41,16 +41,7 @@ export default function ProfilePage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader><CardTitle className="text-sm">Note</CardTitle></CardHeader>
-        <CardContent className="text-xs text-ink-mute leading-relaxed">
-          Hackathon-grade single-admin auth. The credentials are defined in
-          <span className="font-mono"> .env</span> (<span className="font-mono">ADMIN_USERNAME</span>,
-          {" "}<span className="font-mono">ADMIN_PASSWORD</span>) and a JWT signed with
-          {" "}<span className="font-mono">ADMIN_JWT_SECRET</span> is stored in your browser's
-          localStorage. There is no signup, password reset, or per-user permission split yet.
-        </CardContent>
-      </Card>
+     
     </div>
   );
 }

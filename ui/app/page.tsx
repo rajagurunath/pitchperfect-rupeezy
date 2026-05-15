@@ -89,8 +89,6 @@ export default function LandingPage() {
       <Section
         eyebrow="WHAT'S NEXT"
         anchor="roadmap"
-        title={<>Built for India. <em className="font-serif italic font-normal text-accent/90">Designed</em> to scale.</>}
-        kicker="A voice channel that grows with your acquisition motion — from inbound speed-to-lead today to multi-channel automation tomorrow."
       >
         <Roadmap />
       </Section>
@@ -418,7 +416,7 @@ function Section({
 }) {
   const id = anchor ?? eyebrow.toLowerCase().replace(/\s+/g, "-");
   return (
-    <section id={id} className="relative py-24 md:py-32">
+    <section id={id} className="relative py-12 md:py-16">
       <div className="mx-auto max-w-7xl px-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-12 gap-y-8 mb-12">
           <div className="lg:col-span-3">
@@ -696,7 +694,7 @@ function UseCases() {
     },
   ];
   return (
-    <section id="use-cases" className="relative py-24 md:py-32 border-t border-ink-line bg-gradient-to-b from-ink to-ink-card/20">
+    <section id="use-cases" className="relative py-12 md:py-16 border-t border-ink-line bg-gradient-to-b from-ink to-ink-card/20">
       <div className="mx-auto max-w-7xl px-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-x-12 gap-y-8 mb-12">
           <div className="lg:col-span-3">
@@ -738,16 +736,36 @@ function UseCases() {
 
 function Roadmap() {
   const items = [
-    { tag: "SOON", title: "WhatsApp follow-up after every call",
-      body: "Auto-send the call summary, brochure, and next steps in the partner's language seconds after hang-up." },
-    { tag: "SOON", title: "Live supervisor barge-in",
-      body: "RMs can take over a call mid-flight when the agent flags a HOT signal — without dropping the lead." },
-    { tag: "NEXT", title: "Voice cloning per RM",
-      body: "Let each RM record a 30-second clone so reassigned calls feel continuous to the partner." },
-    { tag: "NEXT", title: "Native CRM connectors",
-      body: "Salesforce, HubSpot, LeadSquared, Zoho. Two-way sync of leads, transcripts, and scores. No spreadsheet exports." },
-    { tag: "LATER", title: "Multi-channel orchestration",
-      body: "Voice + WhatsApp + email, sequenced automatically per persona — so no lead falls through the cracks." },
+    {
+      tag: "9 LANGUAGES",
+      title: "Dialect tuning + more languages",
+      body: "Beyond the 9 launch languages: dialect-aware voice models, Bhojpuri, Odia, Assamese, and per-RM voice cloning so every reassigned call sounds continuous.",
+    },
+    {
+      tag: "SUB-5s DIAL",
+      title: "WhatsApp follow-up, seconds after hang-up",
+      body: "The same speed that gets us into the call gets the summary out. Brochure, next steps, and call recap delivered in the partner's language before they hang up the mental context.",
+    },
+    {
+      tag: "SCORING",
+      title: "RM priority queue + live barge-in",
+      body: "A ranked inbox that puts HOT leads at the top — and lets an RM join any live call the moment the agent flags strong intent, without dropping the lead.",
+    },
+    {
+      tag: "CONSOLE",
+      title: "Native CRM connectors",
+      body: "Salesforce, HubSpot, LeadSquared, Zoho. Leads flow in; transcripts, scores, and next actions flow back out. No exports, no copy-paste.",
+    },
+    {
+      tag: "NEXT",
+      title: "Voice cloning per RM",
+      body: "Let each RM record a 30-second clone so reassigned calls feel continuous to the partner.",
+    },
+    {
+      tag: "LATER",
+      title: "Multi-channel orchestration",
+      body: "Voice + WhatsApp + email, sequenced automatically per persona — so no lead falls through the cracks.",
+    },
   ];
 
   return (
@@ -802,7 +820,7 @@ function Roadmap() {
 // Final CTA
 // ---------------------------------------------------------------------------
 
-function CtaBlock({ ctaHref, ctaLabel }: { ctaHref: string; ctaLabel: string }) {
+function CtaBlock(_: { ctaHref: string; ctaLabel: string }) {
   return (
     <section id="book" className="relative overflow-hidden border-t border-ink-line">
       <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-accent/40 to-transparent" />
@@ -862,10 +880,7 @@ function Footer() {
             they&apos;re still warm — and let your RM team spend their time on the
             ones that actually close.
           </p>
-          <p className="mt-4 text-[11px] text-ink-mute leading-relaxed max-w-sm">
-            Currently powering <span className="text-accent">Rupeezy&apos;s AP partner program</span>
-            {" "}in production — built in India, for India-first fintech teams.
-          </p>
+         
         </div>
 
         <div className="md:col-span-2">

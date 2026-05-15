@@ -20,8 +20,8 @@ const WORKSPACE_NAV = [
 ];
 
 const TOOLS_NAV = [
-  { href: "/studio",  label: "Studio",   Icon: Wand2 },
-  { href: "/profile", label: "Settings", Icon: Settings },
+  { href: "/studio",   label: "Studio",   Icon: Wand2 },
+  { href: "/settings", label: "Settings", Icon: Settings },
 ];
 
 export function Sidebar() {
@@ -66,7 +66,7 @@ export function Sidebar() {
       {/* Logo + toggle */}
       <div className="flex items-center justify-between px-3 py-4 border-b border-ink-line min-h-[60px]">
         <Link
-          href="/operations"
+          href="/"
           className={`flex items-center gap-2.5 overflow-hidden ${collapsed ? "opacity-0 w-0 pointer-events-none" : "opacity-100"} transition-opacity duration-150`}
         >
           <div className="h-8 w-8 shrink-0 rounded-lg bg-accent/20 ring-1 ring-accent/40 flex items-center justify-center">
@@ -137,8 +137,8 @@ export function Sidebar() {
       {/* Profile / logout */}
       <div className="border-t border-ink-line px-2 py-3">
         <div className="group relative">
-          <button
-            onClick={logout}
+          <Link
+            href="/profile"
             className={`w-full flex items-center gap-2.5 px-2 py-2 rounded-lg text-ink-mute hover:bg-ink-line hover:text-ink-text transition-colors ${collapsed ? "justify-center" : ""}`}
           >
             <div className="h-7 w-7 shrink-0 rounded-full bg-accent/20 ring-1 ring-accent/40 flex items-center justify-center text-accent font-bold text-xs">
@@ -152,21 +152,21 @@ export function Sidebar() {
                 <div className="text-[10px] text-ink-mute truncate">{profile?.role ?? "—"}</div>
               </div>
             )}
-            {!collapsed && <LogOut size={13} className="shrink-0 opacity-50" />}
-          </button>
+            {!collapsed && <User size={13} className="shrink-0 opacity-50" />}
+          </Link>
           {collapsed && (
-            <Tooltip>Sign out</Tooltip>
+            <Tooltip>Profile</Tooltip>
           )}
         </div>
 
         {!collapsed && (
-          <Link
-            href="/profile"
-            className="mt-1 w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px] text-ink-mute hover:bg-ink-line hover:text-ink-text transition-colors"
+          <button
+            onClick={logout}
+            className="mt-1 w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-[12px] text-ink-mute hover:bg-ink-line hover:text-hot transition-colors"
           >
-            <User size={13} />
-            View profile
-          </Link>
+            <LogOut size={13} />
+            Sign out
+          </button>
         )}
       </div>
     </aside>
