@@ -135,6 +135,7 @@ class LeadIn(BaseModel):
     agent_id: str | None = Field(default=None, description="FK to agents.id; null = use default agent (or env)")
     notes: str | None = None
     opening_line: str | None = Field(default=None, description="Spoken immediately via TTS when the call connects — eliminates the silent gap.")
+    campaign: str | None = Field(default=None, description="Campaign title this lead belongs to.")
 
 
 class LeadOut(LeadIn):
@@ -225,6 +226,10 @@ SARVAM_VOICE_CATALOG = [
 # that may still be stored in older leads' voice_id column.
 _SARVAM_SPEAKERS: set[str] = {v["voice_id"] for v in SARVAM_VOICE_CATALOG}
 
+# Pre-synthesised Sarvam TTS opener audio, keyed by call_id.
+# Populated in _place_call, consumed once by GET /api/prewarm/{call_id}.
+_PREWARM_CACHE: dict[str, bytes] = {}
+
 
 ELEVENLABS_VOICE_CATALOG = [
     {"voice_id": "hpp4J3VqNfWAUOO0d1Us", "name": "Bella",   "description": "Female · professional · warm"},
@@ -277,6 +282,7 @@ async def create_lead(lead: LeadIn,
         agent_name=(lead.agent_name or "").strip() or None,
         agent_id=agent_id,
         opening_line=(lead.opening_line or "").strip() or None,
+        campaign=(lead.campaign or "").strip() or None,
     )
     return db.get_lead(lid)
 
@@ -300,7 +306,8 @@ async def upload_leads(file: UploadFile,
             skipped.append(f"row {i}: phone {phone!r} not E.164")
             continue
         db.insert_lead(name, phone, row.get("language_pref") or None,
-                       row.get("notes") or None)
+                       row.get("notes") or None,
+                       campaign=(row.get("campaign") or "").strip() or None)
         inserted += 1
     return {"inserted": inserted, "skipped": skipped}
 
@@ -1379,6 +1386,109 @@ async def simulate_voice_offer_patch(
 # Outbound dial helper (used by the API endpoints)
 # ============================================================================
 
+def _build_opener(
+    lang_pref: str, lead_first: str, agent_name: str, brand: str
+) -> tuple[str, str]:
+    """Return (opening_line, sarvam_language_code) for the given language preference."""
+    lp = (lang_pref or "").lower().strip()
+    name = f", {lead_first}" if lead_first else ""
+
+    if any(k in lp for k in ("ta", "tamil")):
+        return (
+            f"Vanakkam{name}! Naan {agent_name}, {brand} irundu pesugiren. "
+            f"Ungalukku oru nalla vasadhi pathi sollanom — "
+            f"100 silavidam brokerage share matrum daily payouts. Oru nimisham pesalama?",
+            "ta-IN",
+        )
+    if any(k in lp for k in ("te", "telugu")):
+        return (
+            f"Namaskaram{name}! Nenu {agent_name}, {brand} nunchi matladutunna. "
+            f"Meeru kosam oka manci avasaram undi — "
+            f"100 percent brokerage share mariyu daily payouts. Okka nimisham matladataniki velustu?",
+            "te-IN",
+        )
+    if any(k in lp for k in ("mr", "marathi")):
+        return (
+            f"Namaskar{name}! Mi {agent_name} {brand} kadun boltey. "
+            f"Tumhala ek chhan sandhi sangaychay — "
+            f"100 percent brokerage share ani daily payouts. Ek minute bolal ka?",
+            "mr-IN",
+        )
+    if any(k in lp for k in ("gu", "gujarati")):
+        return (
+            f"Namaste{name}! Hu {agent_name} chu {brand} thi. "
+            f"Tamne ek saras takh vishe janavaanu chhe — "
+            f"100 percent brokerage share ane daily payouts. Ek minit vaat kari shakasho?",
+            "gu-IN",
+        )
+    if any(k in lp for k in ("bn", "bengali")):
+        return (
+            f"Namaskar{name}! Ami {agent_name}, {brand} theke bolchi. "
+            f"Apnake ekta darun sujog somporke bolte chhaichi — "
+            f"100 percent brokerage share ebong daily payouts. Ek minit kotha bolte parben?",
+            "bn-IN",
+        )
+    if any(k in lp for k in ("pa", "punjabi")):
+        return (
+            f"Sat Sri Akal{name}! Main {agent_name} haan {brand} to. "
+            f"Tuhanu ik bahut vadiya mauka dasna chahunda si — "
+            f"100 percent brokerage share te daily payouts. Ik minute gal kar sakte ho?",
+            "pa-IN",
+        )
+    if any(k in lp for k in ("en", "english")):
+        return (
+            f"Hello{name}! I'm {agent_name} calling from {brand}. "
+            f"I wanted to share a great opportunity with you — "
+            f"100 percent brokerage share and daily payouts. Do you have a minute?",
+            "en-IN",
+        )
+    # Default: Hindi / Hinglish
+    name_ji = f", {lead_first} ji" if lead_first else ""
+    return (
+        f"Haan ji, namaste{name_ji}! "
+        f"Main {agent_name} bol rahi hoon {brand} ki taraf se. "
+        f"Aapko ek bahut achha opportunity ke baare mein batana tha — "
+        f"jahan aap 100 percent brokerage share pa sakte hain, aur payout bhi daily milta hai. "
+        f"Kya aap ek minute baat kar sakte hain?",
+        "hi-IN",
+    )
+
+
+def _prewarm_sarvam_audio(text: str, lang_code: str, speaker: str) -> bytes | None:
+    """Call Sarvam HTTP TTS and return raw WAV bytes, or None on any failure."""
+    api_key = os.getenv("SARVAM_API_KEY")
+    if not api_key or not text:
+        return None
+    model = os.getenv("SARVAM_TTS_MODEL", "bulbul:v3")
+    payload: dict[str, Any] = {
+        "text": text,
+        "target_language_code": lang_code,
+        "speaker": speaker,
+        "model": model,
+        "sample_rate": 22050,
+        "enable_preprocessing": True,
+        "pace": 1.0,
+    }
+    if "v3" in model:
+        payload["temperature"] = 0.5
+    try:
+        import base64
+        resp = requests.post(
+            "https://api.sarvam.ai/text-to-speech",
+            headers={"api-subscription-key": api_key, "Content-Type": "application/json"},
+            json=payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        audios = resp.json().get("audios") or []
+        if not audios:
+            return None
+        return base64.b64decode(audios[0])
+    except Exception as exc:
+        log.warning("sarvam prewarm failed (%s/%s): %s", lang_code, speaker, exc)
+        return None
+
+
 def _public_base_url() -> str:
     """Return ``https://<host>`` reachable from Twilio.
 
@@ -1416,24 +1526,38 @@ async def _place_call(lead: dict[str, Any]) -> dict[str, Any]:
     # Twilio's <Stream><Parameter> values must be HTML-escaped so a
     # name with an apostrophe or notes with quotes don't break the XML.
     # call_id is enough for the bot — it loads notes and voice_id from
-    # SQLite by call_id → lead_id, avoiding payload-in-URL footguns.
     from xml.sax.saxutils import escape as xml_escape
-    opening_line = (lead.get("opening_line") or "").strip()
-    say_text = opening_line or (
-        f'Connecting you to {xml_escape(os.getenv("AGENT_NAME", "Priya"))} from '
-        f'{xml_escape(os.getenv("AGENT_BRAND", "Rupeezy"))}.'
+    agent_name  = os.getenv("AGENT_NAME", "Priya")
+    brand       = os.getenv("AGENT_BRAND", "Rupeezy")
+    lead_first  = (lead.get("name") or "").split()[0] if lead.get("name") else ""
+    lang_pref   = (lead.get("language_pref") or "").lower().strip()
+
+    _default_opener, _lang_code = _build_opener(lang_pref, lead_first, agent_name, brand)
+    opening_line = (
+        (lead.get("opening_line") or "").strip()
+        or os.getenv("AGENT_OPENING_LINE", "").strip()
+        or _default_opener
     )
+    _speaker = (lead.get("voice_id") or "").strip() or os.getenv("SARVAM_SPEAKER", "kavya")
+    wav_bytes = _prewarm_sarvam_audio(opening_line, _lang_code, _speaker)
+
+    if wav_bytes:
+        _PREWARM_CACHE[call_id] = wav_bytes
+        say_block = f'<Play>{xml_escape(base)}/api/prewarm/{xml_escape(call_id)}</Play>'
+        opening_param = f'<Parameter name="opening_line" value="{xml_escape(opening_line)}"/>'
+    else:
+        # Prewarm failed — silence then LLM generates the opener
+        say_block = '<Pause length="2"/>'
+        opening_param = ""
+
     twiml = (
         '<?xml version="1.0" encoding="UTF-8"?>'
         '<Response>'
-        '<Pause length="1"/>'
-        '<Say voice="Polly.Aditi" language="hi-IN">'
-        f'{xml_escape(say_text)}'
-        '</Say>'
+        f'{say_block}'
         f'<Connect><Stream url="{ws_url}">'
         f'<Parameter name="call_id" value="{xml_escape(call_id)}"/>'
-        + (f'<Parameter name="opening_line" value="{xml_escape(opening_line)}"/>' if opening_line else '')
-        + '</Stream></Connect>'
+        f'{opening_param}'
+        '</Stream></Connect>'
         '</Response>'
     )
 
@@ -1473,6 +1597,15 @@ def _to_language(pref: str | None) -> Language | None:
         return Language(pref)
     except ValueError:
         return None
+
+
+@app.get("/api/prewarm/{call_id}")
+async def prewarm_audio(call_id: str) -> Response:
+    """Serve pre-synthesised Sarvam opener WAV for Twilio <Play>. One-shot."""
+    wav_bytes = _PREWARM_CACHE.pop(call_id, None)
+    if wav_bytes is None:
+        raise HTTPException(404, "prewarm audio not found or already served")
+    return Response(content=wav_bytes, media_type="audio/wav")
 
 
 @app.get("/twiml")

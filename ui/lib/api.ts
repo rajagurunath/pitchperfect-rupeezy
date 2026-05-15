@@ -14,6 +14,7 @@ export type Lead = {
   agent_id: string | null;
   notes: string | null;
   opening_line: string | null;
+  campaign: string | null;
   status: "queued" | "calling" | "done" | "dnd";
   created_at: string;
   updated_at: string;
@@ -118,7 +119,7 @@ export const api = {
     asJson<Lead[]>(
       fetch(`/api/leads${status ? `?status=${status}` : ""}`, { cache: "no-store", headers: authHeaders() }),
     ),
-  createLead: (body: { name: string; phone: string; language_pref?: string; voice_id?: string; agent_name?: string; agent_id?: string; notes?: string; opening_line?: string }) =>
+  createLead: (body: { name: string; phone: string; language_pref?: string; voice_id?: string; agent_name?: string; agent_id?: string; notes?: string; opening_line?: string; campaign?: string }) =>
     asJson<Lead>(
       fetch("/api/leads", { method: "POST", headers: jsonHeaders(), body: JSON.stringify(body) }),
     ),

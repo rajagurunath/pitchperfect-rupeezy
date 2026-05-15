@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, agentsApi, Agent, Lead, Voice, VoiceCatalog } from "@/lib/api";
+import { loadCampaigns, type Campaign } from "@/lib/campaigns";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label, StatusPill, Textarea } from "@/components/ui";
 import { formatTime } from "@/lib/utils";
 
@@ -15,6 +16,8 @@ export default function LeadsPage() {
   const [voiceId, setVoiceId] = useState<string>("");
   const [agents, setAgents] = useState<Agent[]>([]);
   const [agentId, setAgentId] = useState<string>("");
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [campaignTitle, setCampaignTitle] = useState<string>("");
   const [currentPage, setCurrentPage] = useState(0);
   const [pageSize, setPageSize] = useState(10); // Default page size
 
@@ -24,6 +27,7 @@ export default function LeadsPage() {
 
   useEffect(() => {
     refresh();
+    setCampaigns(loadCampaigns());
     api.voices().then((vc) => {
       setVoiceCatalog(vc);
       setVoiceId(vc.default_voice_id);
@@ -51,6 +55,7 @@ export default function LeadsPage() {
         agent_name: String(form.get("agent_name") || "").trim() || undefined,
         agent_id: agentId || undefined,
         notes: String(form.get("notes") || "").trim() || undefined,
+        campaign: campaignTitle || undefined,
       };
       if (!body.name || !body.phone) {
         throw new Error("Name and phone are required.");
@@ -88,11 +93,13 @@ export default function LeadsPage() {
   }
 
   async function callBatch() {
+    setBusy(true); setErr(null); setMsg(null);
     try {
       const r = await api.callBatch(10);
-      setMsg(`Batch dialing ${r.placed.length} leads.`);
+      setMsg(r.placed.length ? `Dialing ${r.placed.length} leads.` : "No queued leads to call.");
       await refresh();
     } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
   }
 
   async function deleteLead(id: string) {
@@ -112,7 +119,9 @@ export default function LeadsPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Leads</h1>
           <p className="text-sm text-ink-mute mt-1">Add leads one by one or upload a CSV. Trigger calls when ready.</p>
         </div>
-        <Button onClick={callBatch} disabled={busy}>Call next 10 queued</Button>
+        <Button onClick={callBatch} disabled={busy || leads.filter(l => l.status === "queued").length === 0}>
+          {busy ? "Dialing…" : `Call next 10 queued${leads.filter(l => l.status === "queued").length ? ` (${leads.filter(l => l.status === "queued").length})` : " — none"}`}
+        </Button>
       </div>
 
       {err && <div className="text-hot text-sm">{err}</div>}
@@ -191,6 +200,26 @@ export default function LeadsPage() {
                 </p>
               </div>
               <div className="space-y-1">
+                <Label htmlFor="campaign">Campaign (optional)</Label>
+                <select
+                  id="campaign"
+                  value={campaignTitle}
+                  onChange={(e) => setCampaignTitle(e.target.value)}
+                  className="w-full rounded-lg border border-ink-line bg-ink px-3 py-2 text-sm text-ink-text outline-none focus:border-accent"
+                >
+                  <option value="">— No campaign —</option>
+                  {campaigns.map((c) => (
+                    <option key={c.id} value={c.title}>{c.title}</option>
+                  ))}
+                </select>
+                {campaigns.length === 0 && (
+                  <p className="text-[11px] text-ink-mute">
+                    No campaigns yet — create one in{" "}
+                    <Link href="/campaigns" className="text-accent hover:underline">Campaigns</Link>.
+                  </p>
+                )}
+              </div>
+              <div className="space-y-1">
                 <Label htmlFor="notes">Notes for the agent (optional)</Label>
                 <Textarea
                   id="notes"
@@ -213,16 +242,16 @@ export default function LeadsPage() {
           <CardContent className="space-y-3">
             <p className="text-xs text-ink-mute">
               CSV with columns: <span className="font-mono">name, phone</span>
-              <span className="text-ink-mute"> (and optional <span className="font-mono">language_pref</span>, <span className="font-mono">notes</span>)</span>.
+              <span className="text-ink-mute"> (and optional <span className="font-mono">language_pref</span>, <span className="font-mono">notes</span>, <span className="font-mono">campaign</span>)</span>.
               Phone must be E.164.
             </p>
             <FileDrop disabled={busy} onPick={onUpload} />
             <details className="text-xs text-ink-mute">
               <summary className="cursor-pointer hover:text-ink-text">Sample CSV</summary>
-              <pre className="mt-2 p-3 rounded-md bg-ink border border-ink-line font-mono text-[11px] whitespace-pre-wrap">name,phone,language_pref,notes
-Ravi Kumar,+919444531354,hi-IN,Existing MFD with 50 clients
-Asha Iyer,+919876543210,ta-IN,
-Vikram Shah,+919812345678,,Inbound from Instagram ad</pre>
+              <pre className="mt-2 p-3 rounded-md bg-ink border border-ink-line font-mono text-[11px] whitespace-pre-wrap">name,phone,language_pref,notes,campaign
+Ravi Kumar,+919444531354,hi-IN,Existing MFD with 50 clients,Diwali AP Drive
+Asha Iyer,+919876543210,ta-IN,,Tamil Outreach Q1
+Vikram Shah,+919812345678,,Inbound from Instagram ad,</pre>
             </details>
           </CardContent>
         </Card>
@@ -240,6 +269,7 @@ Vikram Shah,+919812345678,,Inbound from Instagram ad</pre>
                   <th className="px-4 py-2 font-medium">Name</th>
                   <th className="px-4 py-2 font-medium">Phone</th>
                   <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium">Campaign</th>
                   <th className="px-4 py-2 font-medium">Agent</th>
                   <th className="px-4 py-2 font-medium">Lang</th>
                   <th className="px-4 py-2 font-medium">Created</th>
@@ -254,6 +284,15 @@ Vikram Shah,+919812345678,,Inbound from Instagram ad</pre>
                       <td className="px-4 py-2.5">{l.name}</td>
                       <td className="px-4 py-2.5 font-mono text-xs">{l.phone}</td>
                       <td className="px-4 py-2.5"><StatusPill status={l.status} /></td>
+                      <td className="px-4 py-2.5">
+                        {l.campaign ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium bg-accent/10 text-accent">
+                            {l.campaign}
+                          </span>
+                        ) : (
+                          <span className="text-ink-mute text-xs">—</span>
+                        )}
+                      </td>
                       <td className="px-4 py-2.5 text-xs">
                         {agent ? (
                           <span className="text-ink-text">

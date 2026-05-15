@@ -174,6 +174,8 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE leads ADD COLUMN agent_id TEXT")
     if "opening_line" not in lead_cols:
         conn.execute("ALTER TABLE leads ADD COLUMN opening_line TEXT")
+    if "campaign" not in lead_cols:
+        conn.execute("ALTER TABLE leads ADD COLUMN campaign TEXT")
 
 
 def _ensure_init() -> None:
@@ -217,16 +219,17 @@ def insert_lead(name: str, phone: str, language_pref: str | None = None,
                 notes: str | None = None, voice_id: str | None = None,
                 agent_name: str | None = None,
                 agent_id: str | None = None,
-                opening_line: str | None = None) -> str:
+                opening_line: str | None = None,
+                campaign: str | None = None) -> str:
     lid = new_id("lead")
     ts = now_iso()
     with with_conn() as c:
         c.execute(
             "INSERT INTO leads(id,name,phone,language_pref,voice_id,agent_name,"
-            "agent_id,notes,opening_line,status,created_at,updated_at)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            "agent_id,notes,opening_line,campaign,status,created_at,updated_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (lid, name, phone, language_pref, voice_id, agent_name,
-             agent_id, notes, opening_line, "queued", ts, ts),
+             agent_id, notes, opening_line, campaign, "queued", ts, ts),
         )
     return lid
 

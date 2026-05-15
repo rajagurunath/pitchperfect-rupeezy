@@ -185,7 +185,6 @@ export default function SimulatePage() {
 
       <RuntimePromptPreview persona={persona} />
       <PromptsPanel agentId={loadedAgentId} />
-      <WhatsAppPanel />
     </div>
   );
 }
@@ -1485,80 +1484,6 @@ function PromptsPanel({ agentId }: { agentId: string | null }) {
             ))}
           </div>
         )}
-      </CardContent>
-    </Card>
-  );
-}
-
-// ── WhatsApp follow-up panel ─────────────────────────────────────────────────
-
-const WA_DEFAULT_MESSAGE =
-  `It was nice talking to you! Here is the sign-up link to become Rupeezy's Authorised Person partner:\n\nhttps://rupeezy.in/authorized-person\n\nFeel free to reach out if you have any questions.`;
-
-function WhatsAppPanel() {
-  const [from, setFrom] = useState("");
-  const [to, setTo]     = useState("");
-  const [message, setMessage] = useState(WA_DEFAULT_MESSAGE);
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null);
-
-  useEffect(() => {
-    api.whatsappConfig().then((c) => { if (c.from_number) setFrom(c.from_number); }).catch(() => {});
-  }, []);
-
-  async function send() {
-    if (!from.trim() || !to.trim() || !message.trim()) return;
-    setBusy(true);
-    setResult(null);
-    try {
-      const res = await api.sendWhatsApp({
-        from_number: from.trim(),
-        to_number: to.trim(),
-        message: message.trim(),
-      });
-      setResult({ ok: true, text: `Sent · SID ${res.sid} · ${res.status}` });
-    } catch (e: any) {
-      setResult({ ok: false, text: e.message ?? "Failed to send" });
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <span className="text-base">💬</span> WhatsApp Follow-up
-        </CardTitle>
-        <p className="text-xs text-ink-mute mt-0.5">
-          Send a follow-up message with the Rupeezy AP sign-up link via your WhatsApp Business number.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-4 max-w-2xl">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <Field label="From — Business number" hint="Set TWILIO_WHATSAPP_FROM in .env. Format: +91 followed by 10 digits, e.g. +919876543210">
-            <Input value={from} onChange={(e) => setFrom(e.target.value)} placeholder="+919876543210" />
-          </Field>
-          <Field label="To — Recipient number" hint="+91 followed by 10 digits, no spaces. e.g. +919444531354">
-            <Input value={to} onChange={(e) => setTo(e.target.value)} placeholder="+919444531354" />
-          </Field>
-        </div>
-        <Field label="Message">
-          <Textarea rows={5} value={message} onChange={(e) => setMessage(e.target.value)} />
-        </Field>
-        <div className="flex items-center gap-3">
-          <Button
-            onClick={send}
-            disabled={busy || !from.trim() || !to.trim() || !message.trim()}
-          >
-            {busy ? "Sending…" : "Send WhatsApp"}
-          </Button>
-          {result && (
-            <span className={`text-xs ${result.ok ? "text-accent" : "text-hot"}`}>
-              {result.text}
-            </span>
-          )}
-        </div>
       </CardContent>
     </Card>
   );
