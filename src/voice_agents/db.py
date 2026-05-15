@@ -121,6 +121,34 @@ CREATE TABLE IF NOT EXISTS agents (
     updated_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS agents_default_idx ON agents(is_default);
+
+-- Handoffs: every HOT / WARM call generates one handoff to the human RM,
+-- delivered as a WhatsApp message with a link to a public context card.
+-- The card URL is HMAC-signed (card_token). agent_id + agent_name are
+-- captured at send time so analytics can answer "which trained agent
+-- drove the most handoffs" even after the agent is renamed/deleted.
+CREATE TABLE IF NOT EXISTS handoffs (
+    id            TEXT PRIMARY KEY,
+    call_id       TEXT NOT NULL,
+    lead_id       TEXT NOT NULL,
+    agent_id      TEXT,
+    agent_name    TEXT,
+    score         TEXT,                 -- HOT | WARM (we don't hand off COLD)
+    channel       TEXT NOT NULL,        -- 'call' (HOT) | 'whatsapp' (WARM)
+    rm_phone      TEXT,                 -- E.164; whom the WhatsApp went to
+    card_token    TEXT NOT NULL UNIQUE, -- HMAC-signed; opens the public card
+    status        TEXT NOT NULL DEFAULT 'pending',  -- pending|sent|failed|opened
+    error         TEXT,
+    twilio_sid    TEXT,                 -- WhatsApp message SID, if delivered
+    created_at    TEXT NOT NULL,
+    sent_at       TEXT,
+    opened_at     TEXT,
+    FOREIGN KEY (call_id) REFERENCES calls(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS handoffs_call_idx  ON handoffs(call_id);
+CREATE INDEX IF NOT EXISTS handoffs_lead_idx  ON handoffs(lead_id);
+CREATE INDEX IF NOT EXISTS handoffs_token_idx ON handoffs(card_token);
+CREATE INDEX IF NOT EXISTS handoffs_agent_idx ON handoffs(agent_id);
 """
 
 
@@ -589,6 +617,158 @@ def set_lead_agent(lead_id: str, agent_id: str | None) -> None:
             "UPDATE leads SET agent_id=?, updated_at=? WHERE id=?",
             (agent_id, now_iso(), lead_id),
         )
+
+
+# ----- handoffs (RM context-card delivery) ------------------------------------
+
+_HANDOFF_COLS = (
+    "id", "call_id", "lead_id", "agent_id", "agent_name", "score", "channel",
+    "rm_phone", "card_token", "status", "error", "twilio_sid",
+    "created_at", "sent_at", "opened_at",
+)
+
+
+def insert_handoff(call_id: str, lead_id: str, score: str, channel: str,
+                   card_token: str, rm_phone: str | None,
+                   agent_id: str | None = None,
+                   agent_name: str | None = None,
+                   handoff_id: str | None = None) -> str:
+    hid = handoff_id or new_id("hand")
+    with with_conn() as c:
+        c.execute(
+            "INSERT INTO handoffs("
+            "id, call_id, lead_id, agent_id, agent_name, score, channel,"
+            " rm_phone, card_token, status, created_at)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (hid, call_id, lead_id, agent_id, agent_name, score, channel,
+             rm_phone, card_token, "pending", now_iso()),
+        )
+    return hid
+
+
+def mark_handoff_sent(handoff_id: str, twilio_sid: str | None) -> None:
+    with with_conn() as c:
+        c.execute(
+            "UPDATE handoffs SET status='sent', sent_at=?, twilio_sid=? "
+            "WHERE id=?",
+            (now_iso(), twilio_sid, handoff_id),
+        )
+
+
+def mark_handoff_failed(handoff_id: str, error: str) -> None:
+    with with_conn() as c:
+        c.execute(
+            "UPDATE handoffs SET status='failed', error=? WHERE id=?",
+            (error[:500], handoff_id),
+        )
+
+
+def mark_handoff_opened(handoff_id: str) -> None:
+    with with_conn() as c:
+        c.execute(
+            "UPDATE handoffs SET status='opened', opened_at=COALESCE(opened_at, ?) "
+            "WHERE id=?",
+            (now_iso(), handoff_id),
+        )
+
+
+def get_handoff(handoff_id: str) -> dict[str, Any] | None:
+    with with_conn() as c:
+        r = c.execute(
+            f"SELECT {','.join(_HANDOFF_COLS)} FROM handoffs WHERE id=?",
+            (handoff_id,),
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def get_handoff_by_token(token: str) -> dict[str, Any] | None:
+    with with_conn() as c:
+        r = c.execute(
+            f"SELECT {','.join(_HANDOFF_COLS)} FROM handoffs WHERE card_token=?",
+            (token,),
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def get_latest_handoff_for_call(call_id: str) -> dict[str, Any] | None:
+    with with_conn() as c:
+        r = c.execute(
+            f"SELECT {','.join(_HANDOFF_COLS)} FROM handoffs "
+            "WHERE call_id=? ORDER BY datetime(created_at) DESC LIMIT 1",
+            (call_id,),
+        ).fetchone()
+    return dict(r) if r else None
+
+
+def list_handoffs(limit: int = 100,
+                  since_days: int | None = None) -> list[dict[str, Any]]:
+    """Returns handoffs joined with the originating call's summary + analysis
+    so the Handoffs gallery can render each tile without a second hop."""
+    sql = (
+        f"SELECT h.{', h.'.join(_HANDOFF_COLS)}, "
+        "  l.name AS lead_name, l.phone AS lead_phone, l.language_pref, "
+        "  c.summary AS call_summary, c.analysis_json AS analysis_json, "
+        "  c.duration_seconds AS duration_seconds "
+        "FROM handoffs h "
+        "LEFT JOIN leads l ON l.id = h.lead_id "
+        "LEFT JOIN calls c ON c.id = h.call_id "
+        "WHERE 1=1 "
+    )
+    args: list = []
+    if since_days is not None:
+        sql += " AND date(h.created_at) >= date('now', ?)"
+        args.append(f"-{since_days} days")
+    sql += " ORDER BY datetime(h.created_at) DESC LIMIT ?"
+    args.append(limit)
+    import json as _json
+    out: list[dict[str, Any]] = []
+    with with_conn() as c:
+        for r in c.execute(sql, args).fetchall():
+            row = dict(r)
+            raw = row.pop("analysis_json", None)
+            analysis: dict[str, Any] = {}
+            if raw:
+                try:
+                    analysis = _json.loads(raw)
+                except Exception:
+                    pass
+            # Pluck the fields the gallery actually needs — keeping the
+            # payload small for fast renders.
+            row["key_signal"] = analysis.get("key_signal")
+            row["interest_level"] = analysis.get("interest_level")
+            row["sentiment"] = analysis.get("sentiment")
+            out.append(row)
+    return out
+
+
+def handoffs_today_count() -> int:
+    with with_conn() as c:
+        return c.execute(
+            "SELECT COUNT(*) FROM handoffs "
+            "WHERE date(created_at) = date('now')"
+        ).fetchone()[0]
+
+
+def handoffs_by_agent(days: int = 14) -> list[dict[str, Any]]:
+    """Per-agent handoff leaderboard for analytics."""
+    with with_conn() as c:
+        rows = c.execute(
+            """
+            SELECT
+              COALESCE(agent_name, '(default)') AS agent_name,
+              agent_id,
+              COUNT(*) AS total,
+              SUM(CASE WHEN score='HOT'  THEN 1 ELSE 0 END) AS hot,
+              SUM(CASE WHEN score='WARM' THEN 1 ELSE 0 END) AS warm,
+              SUM(CASE WHEN status='opened' THEN 1 ELSE 0 END) AS opened
+            FROM handoffs
+            WHERE date(created_at) >= date('now', ?)
+            GROUP BY agent_id, agent_name
+            ORDER BY total DESC
+            """,
+            (f"-{days} days",),
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 # ----- dashboard --------------------------------------------------------------

@@ -184,6 +184,26 @@ export default function CallDetailPage() {
     finally { setBusy(false); }
   }
 
+  const [handoffBusy, setHandoffBusy] = useState(false);
+  const [handoffMsg, setHandoffMsg] = useState<string | null>(null);
+  async function sendHandoff() {
+    setHandoffBusy(true); setHandoffMsg(null);
+    try {
+      const h = await api.triggerHandoff(id);
+      setHandoffMsg(
+        h.status === "sent"
+          ? "Context card sent to RM."
+          : h.status === "failed"
+            ? `Send failed: ${h.error ?? "unknown error"}`
+            : `Status: ${h.status}`,
+      );
+    } catch (e: any) {
+      setHandoffMsg(e.message ?? "Send failed.");
+    } finally {
+      setHandoffBusy(false);
+    }
+  }
+
   // Only fail the whole page on the *first* load. After we have a call,
   // poll errors and reanalyze errors are shown inline so the user doesn't
   // lose the transcript / timeline they were reading.
@@ -215,6 +235,15 @@ export default function CallDetailPage() {
             <Button variant="secondary" disabled={busy} onClick={reanalyze}>
               {busy ? "Running…" : "Re-analyze"}
             </Button>
+            {(call.score === "HOT" || call.score === "WARM") && (
+              <Button
+                variant="primary"
+                disabled={handoffBusy}
+                onClick={sendHandoff}
+              >
+                {handoffBusy ? "Sending…" : "Send to RM"}
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -227,6 +256,9 @@ export default function CallDetailPage() {
           )}
           {analyzeErr && (
             <p className="mt-3 text-xs text-hot">Re-analyze failed: {analyzeErr}</p>
+          )}
+          {handoffMsg && (
+            <p className="mt-3 text-xs text-ink-mute">{handoffMsg}</p>
           )}
         </CardContent>
       </Card>

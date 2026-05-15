@@ -160,14 +160,74 @@ export const api = {
     persona: SimulatePersona;
     history: { role: "agent" | "lead"; content: string }[];
     message?: string;
+    trial_id?: string;
+    agent_id?: string;
   }) =>
-    asJson<{ reply: string; language: string | null; model: string }>(
+    asJson<{ reply: string; language: string | null; model: string; trial_id: string | null }>(
       fetch("/api/simulate/text", {
         method: "POST",
         headers: jsonHeaders(),
         body: JSON.stringify(body),
       }),
     ),
+
+  simulateTextEnd: (trial_id: string) =>
+    fetch("/api/simulate/text/end", {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify({ trial_id }),
+    }).catch(() => undefined),
+
+  simulatePreviewPrompt: (persona: SimulatePersona) =>
+    asJson<{ system_prompt: string }>(
+      fetch("/api/simulate/preview-prompt", {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(persona),
+      }),
+    ),
+
+  // ── Handoffs (RM context card) ──────────────────────────────────────────
+  triggerHandoff: (callId: string) =>
+    asJson<Handoff>(fetch(`/api/calls/${callId}/handoff`, {
+      method: "POST", headers: authHeaders(),
+    })),
+  listHandoffs: (sinceDays?: number) =>
+    asJson<Handoff[]>(fetch(
+      sinceDays ? `/api/handoffs?since_days=${sinceDays}` : "/api/handoffs",
+      { cache: "no-store", headers: authHeaders() },
+    )),
+  handoffsToday: () =>
+    asJson<{ count: number }>(fetch("/api/handoffs/today", {
+      cache: "no-store", headers: authHeaders(),
+    })),
+};
+
+export type Handoff = {
+  id: string;
+  call_id: string;
+  lead_id: string;
+  agent_id: string | null;
+  agent_name: string | null;
+  score: "HOT" | "WARM" | null;
+  channel: "call" | "whatsapp";
+  rm_phone: string | null;
+  card_token: string;
+  status: "pending" | "sent" | "failed" | "opened";
+  error: string | null;
+  twilio_sid: string | null;
+  created_at: string;
+  sent_at: string | null;
+  opened_at: string | null;
+  lead_name?: string | null;
+  lead_phone?: string | null;
+  language_pref?: string | null;
+  // Joined from the originating call's analysis — used by the Handoffs gallery
+  call_summary?: string | null;
+  duration_seconds?: number | null;
+  key_signal?: string | null;
+  interest_level?: number | null;
+  sentiment?: "positive" | "neutral" | "negative" | null;
 };
 
 export type SimulatePersona = {
@@ -227,4 +287,49 @@ export const agentsApi = {
     const r = await fetch(`/api/agents/${id}`, { method: "DELETE", headers: authHeaders() });
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
   },
+  versions: (id: string) =>
+    asJson<AgentVersion[]>(fetch(`/api/agents/${id}/versions`, {
+      cache: "no-store", headers: authHeaders(),
+    })),
+  versionPrompt: (id: string, runId: string) =>
+    asJson<{ run_id: string; system_prompt: string }>(
+      fetch(`/api/agents/${id}/versions/${runId}/prompt`, {
+        cache: "no-store", headers: authHeaders(),
+      }),
+    ),
+};
+
+// ── Studio prompt history (MLflow-backed) ─────────────────────────────────
+export type AgentVersion = {
+  run_id: string;
+  run_name: string;
+  started_at: number;
+  version: number;
+  change: string;
+  voice_id: string;
+  language_pref: string;
+  opener_variant: string;
+};
+
+export type StudioTrial = {
+  run_id: string;
+  started_at: number;
+  mode: "text" | "voice" | string;
+  agent_id: string;
+  agent_name: string;
+  language_pref: string;
+  voice_id: string;
+  turn_count: number;
+};
+
+export const studioApi = {
+  trials: (agent_id?: string) =>
+    asJson<StudioTrial[]>(
+      fetch(
+        agent_id
+          ? `/api/studio/trials?agent_id=${encodeURIComponent(agent_id)}`
+          : "/api/studio/trials",
+        { cache: "no-store", headers: authHeaders() },
+      ),
+    ),
 };

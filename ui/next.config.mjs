@@ -1,20 +1,28 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+const API_TARGET = process.env.API_PROXY_TARGET || "http://localhost:8000";
+
 /** @type {import('next').NextConfig} */
-
-// In DEMO_MODE the marketing site is deployed without a backend (e.g. on
-// Vercel for the public landing). Skip the /api/* rewrites so requests
-// don't hang trying to reach localhost:8000.
-const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "1";
-
 const nextConfig = {
-  reactStrictMode: true,
+  // Pin the workspace root to this directory.
+  // Without this, Next.js sees ~/ionet/repos/package-lock.json (a separate
+  // Solana/Anchor project one level up) and infers /ionet/repos/ as the
+  // workspace root. Its dev-time file watcher then tries to index every
+  // sibling repo on disk, overflows macOS fsevents, and gets SIGKILL'd by
+  // the kernel after ~10 seconds — leaving the browser tab blank.
+  outputFileTracingRoot: __dirname,
+
+  // Proxy /api/* to the FastAPI backend so the browser only ever talks to :3000.
+  // Override the target with API_PROXY_TARGET env var if the backend lives
+  // elsewhere (e.g. when running the UI against a deployed staging API).
   async rewrites() {
-    if (DEMO_MODE) return [];
     return [
-      {
-        source: "/api/:path*",
-        destination: `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}/api/:path*`,
-      },
+      { source: "/api/:path*", destination: `${API_TARGET}/api/:path*` },
     ];
   },
 };
+
 export default nextConfig;

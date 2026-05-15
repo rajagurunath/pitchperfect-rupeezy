@@ -112,6 +112,7 @@ export function useAuth() {
 // back to the landing page instead of hanging on a missing API.
 
 const PUBLIC_PATHS = new Set(["/", "/login", "/pricing", "/contact"]);
+const PUBLIC_PREFIXES = ["/handoff/"];
 
 export const DEMO_MODE = process.env.NEXT_PUBLIC_DEMO_MODE === "1";
 
@@ -119,7 +120,9 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const path = usePathname();
   const { ready, isAuthed } = useAuth();
-  const isPublic = PUBLIC_PATHS.has(path ?? "");
+  const isPublic =
+    PUBLIC_PATHS.has(path ?? "")
+    || PUBLIC_PREFIXES.some((p) => (path ?? "").startsWith(p));
 
   React.useEffect(() => {
     if (!ready) return;

@@ -36,6 +36,11 @@ Output ONLY valid JSON matching this schema (no prose, no markdown fences):
   "follow_up_priority": <integer 1–10>,
   "buying_signals": ["<exact quote or paraphrase>", ...],
   "objections_raised": ["<short label>", ...],
+  "objections_handled": [
+    {{"objection": "<short label>", "resolution": "<one phrase: how the agent resolved it on the call>"}}
+  ],
+  "key_signal": "<one short sentence — the single strongest moment the human RM should know about>",
+  "recommended_opener": "<one line, in the lead's language, that the human RM can say to re-open the conversation, referencing what the AI agent already discussed>",
   "next_action": "<one concrete sentence for the human RM>"
 }}
 
@@ -190,6 +195,20 @@ async def analyze_call(call_id: str) -> dict[str, Any] | None:
     except Exception as exc:
         log.warning("mlflow analysis log failed (non-fatal): %s", exc)
 
+    # Snapshot the analyzer prompt + transcript-input + raw output so the
+    # MLflow UI shows the full I/O chain next to the score.
+    try:
+        from .mlflow_prompts import log_analyzer_io
+        log_analyzer_io(
+            call_id=call_id,
+            analyzer_prompt=_ANALYZER_PROMPT.format(brand=brand),
+            transcript=transcript,
+            raw_response=raw,
+            parsed=parsed,
+        )
+    except Exception as exc:
+        log.warning("mlflow analyzer io log failed (non-fatal): %s", exc)
+
     log.info(
         "analyze_call: %s → %s (interest=%s/10 priority=%s/10)",
         call_id, score,
@@ -197,4 +216,15 @@ async def analyze_call(call_id: str) -> dict[str, Any] | None:
         parsed.get("follow_up_priority", "?"),
     )
     parsed["score"] = score
+
+    # Auto-dispatch the RM context card for HOT / WARM. Failures here
+    # never bubble up — the score is already persisted and the RM can
+    # resend manually from the call detail page.
+    if score in ("HOT", "WARM") and os.getenv("HANDOFF_AUTOSEND", "1") == "1":
+        try:
+            from .handoff import dispatch_handoff
+            await dispatch_handoff(call_id)
+        except Exception as exc:
+            log.warning("handoff dispatch failed (non-fatal): %s", exc)
+
     return parsed

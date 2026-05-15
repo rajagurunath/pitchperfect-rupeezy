@@ -15,7 +15,7 @@
 //   - usePipecatConversation() — streaming agent transcript
 
 import { useEffect, useRef, useState } from "react";
-import { api, agentsApi, Agent, SimulatePersona } from "@/lib/api";
+import { api, agentsApi, studioApi, Agent, AgentVersion, SimulatePersona, StudioTrial } from "@/lib/api";
 import { getToken } from "@/lib/auth";
 import {
   Button,
@@ -167,11 +167,14 @@ export default function SimulatePage() {
         <PersonaSidebar persona={persona} onChange={setPersona} />
 
         {mode === "text" ? (
-          <TextStage persona={persona} />
+          <TextStage persona={persona} agentId={loadedAgentId} />
         ) : (
           <VoiceStage persona={persona} />
         )}
       </div>
+
+      <RuntimePromptPreview persona={persona} />
+      <PromptsPanel agentId={loadedAgentId} />
     </div>
   );
 }
@@ -285,11 +288,6 @@ function AgentSwitcher({
             </div>
             <div className="mt-1 font-mono text-sm text-ink-text">
               v{loaded.version}
-              {loaded.mlflow_run_id ? (
-                <span className="ml-2 text-[10px] text-ink-mute">
-                  mlflow {loaded.mlflow_run_id.slice(0, 8)}
-                </span>
-              ) : null}
             </div>
           </div>
         )}
@@ -530,16 +528,35 @@ function Select({
 
 // ── text stage ──────────────────────────────────────────────────────────────
 
-function TextStage({ persona }: { persona: SimulatePersona }) {
+function TextStage({
+  persona,
+  agentId,
+}: {
+  persona: SimulatePersona;
+  agentId: string | null;
+}) {
   const [history, setHistory] = useState<ChatTurn[]>([]);
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
+  // One MLflow run per chat session — the id is generated on first send and
+  // reused for every subsequent turn; reset/unmount closes the run.
+  const trialIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [history, busy]);
+
+  // Close the MLflow trial when the user leaves the page or switches mode.
+  useEffect(() => {
+    return () => {
+      if (trialIdRef.current) {
+        api.simulateTextEnd(trialIdRef.current);
+        trialIdRef.current = null;
+      }
+    };
+  }, []);
 
   async function send(message?: string) {
     setBusy(true);
@@ -552,11 +569,16 @@ function TextStage({ persona }: { persona: SimulatePersona }) {
       setHistory(nextHistory);
       setInput("");
     }
+    if (!trialIdRef.current) {
+      trialIdRef.current = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+    }
     try {
       const res = await api.simulateText({
         persona,
         history: nextHistory,
         message: undefined,  // message already appended to history
+        trial_id: trialIdRef.current,
+        agent_id: agentId ?? undefined,
       });
       setHistory([...nextHistory, { role: "agent", content: res.reply }]);
     } catch (e: any) {
@@ -569,6 +591,10 @@ function TextStage({ persona }: { persona: SimulatePersona }) {
   function reset() {
     setHistory([]);
     setErr(null);
+    if (trialIdRef.current) {
+      api.simulateTextEnd(trialIdRef.current);
+      trialIdRef.current = null;
+    }
   }
 
   const empty = history.length === 0;
@@ -1042,6 +1068,254 @@ function VoiceTimeline({ turns }: { turns: MergedTurn[] }) {
                 </div>
               );
             })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+
+// ── runtime prompt preview (collapsible) ──────────────────────────────────
+// Shows the EXACT system prompt currently being sent to the agent for the
+// loaded persona. Refetches whenever the persona changes (debounced) while
+// expanded, so the RM can see how opener / language / lead notes layer in.
+
+function RuntimePromptPreview({ persona }: { persona: SimulatePersona }) {
+  const [open, setOpen] = useState(false);
+  const [prompt, setPrompt] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  // Stable string of the persona to use as a debounce key.
+  const personaKey = JSON.stringify(persona);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setBusy(true);
+    setErr(null);
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.simulatePreviewPrompt(persona);
+        if (!cancelled) setPrompt(r.system_prompt);
+      } catch (e: any) {
+        if (!cancelled) setErr(e.message ?? "Failed to load prompt");
+      } finally {
+        if (!cancelled) setBusy(false);
+      }
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, personaKey]);
+
+  return (
+    <Card>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left"
+        aria-expanded={open}
+      >
+        <CardHeader className="flex items-center justify-between gap-4 hover:bg-ink-line/30 transition-colors">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <span className="inline-flex h-5 w-5 items-center justify-center rounded text-ink-mute text-xs">
+                {open ? "▼" : "▸"}
+              </span>
+              Runtime system prompt
+            </CardTitle>
+            <p className="text-xs text-ink-mute mt-0.5 ml-7">
+              The exact instructions sent to the agent right now — opener,
+              language rules, objections, lead context. Updates live as you
+              change the persona.
+            </p>
+          </div>
+          {open && (
+            <span className="text-[11px] text-ink-mute font-mono">
+              {prompt.length.toLocaleString()} chars
+            </span>
+          )}
+        </CardHeader>
+      </button>
+      {open && (
+        <CardContent>
+          {err && <p className="text-xs text-hot mb-2">Error: {err}</p>}
+          {busy && !prompt ? (
+            <p className="text-sm text-ink-mute">Loading prompt…</p>
+          ) : (
+            <pre className="text-[11px] text-ink-text leading-relaxed whitespace-pre-wrap font-mono p-3 rounded-lg bg-ink border border-ink-line max-h-[60vh] overflow-y-auto">
+              {prompt}
+            </pre>
+          )}
+        </CardContent>
+      )}
+    </Card>
+  );
+}
+
+
+// ── prompts panel (saved versions + preview history) ───────────────────────
+
+function PromptsPanel({ agentId }: { agentId: string | null }) {
+  const [tab, setTab] = useState<"versions" | "trials">("versions");
+  const [versions, setVersions] = useState<AgentVersion[]>([]);
+  const [trials, setTrials] = useState<StudioTrial[]>([]);
+  const [open, setOpen] = useState<string | null>(null);
+  const [promptText, setPromptText] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function refresh() {
+    setErr(null);
+    if (!agentId) {
+      // Trials are global without an agent — show them anyway.
+      try { setTrials(await studioApi.trials()); } catch (e: any) { setErr(e.message); }
+      setVersions([]);
+      return;
+    }
+    setBusy(true);
+    try {
+      const [vs, ts] = await Promise.all([
+        agentsApi.versions(agentId),
+        studioApi.trials(agentId),
+      ]);
+      setVersions(vs);
+      setTrials(ts);
+    } catch (e: any) { setErr(e.message); }
+    finally { setBusy(false); }
+  }
+
+  useEffect(() => { refresh(); /* eslint-disable-next-line */ }, [agentId]);
+
+  async function openVersion(runId: string) {
+    if (!agentId) return;
+    if (open === runId) { setOpen(null); setPromptText(""); return; }
+    setOpen(runId);
+    setPromptText("Loading…");
+    try {
+      const r = await agentsApi.versionPrompt(agentId, runId);
+      setPromptText(r.system_prompt || "(no system prompt artifact stored)");
+    } catch (e: any) {
+      setPromptText(`Failed: ${e.message}`);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <CardTitle>History</CardTitle>
+          <p className="text-xs text-ink-mute mt-0.5">
+            Every save creates a new version. Every text or voice preview
+            is recorded so you can compare runs side by side.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="inline-flex rounded-lg border border-ink-line bg-ink p-1 text-xs">
+            <button
+              onClick={() => setTab("versions")}
+              className={
+                "px-3 py-1 rounded-md " +
+                (tab === "versions" ? "bg-accent text-ink" : "text-ink-text")
+              }
+            >
+              Versions {agentId ? `· ${versions.length}` : ""}
+            </button>
+            <button
+              onClick={() => setTab("trials")}
+              className={
+                "px-3 py-1 rounded-md " +
+                (tab === "trials" ? "bg-accent text-ink" : "text-ink-text")
+              }
+            >
+              Previews · {trials.length}
+            </button>
+          </div>
+          <Button variant="secondary" size="sm" onClick={refresh} disabled={busy}>
+            {busy ? "…" : "Refresh"}
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {err && <p className="text-xs text-hot mb-3">Error: {err}</p>}
+
+        {tab === "versions" && !agentId && (
+          <p className="text-sm text-ink-mute">
+            Load a saved agent above to see its prompt-version history.
+          </p>
+        )}
+
+        {tab === "versions" && agentId && versions.length === 0 && !busy && (
+          <p className="text-sm text-ink-mute">
+            No versions saved yet — save the agent to create v1.
+          </p>
+        )}
+
+        {tab === "versions" && versions.length > 0 && (
+          <div className="space-y-2">
+            {versions.map((v) => (
+              <div
+                key={v.run_id}
+                className="rounded-lg border border-ink-line bg-ink"
+              >
+                <button
+                  onClick={() => openVersion(v.run_id)}
+                  className="w-full flex items-center gap-3 px-3 py-2 text-left hover:bg-ink-line/40"
+                >
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold bg-accent-soft text-accent border border-accent/30 min-w-[2.5rem] justify-center">
+                    v{v.version}
+                  </span>
+                  <span className="text-xs text-ink-mute uppercase tracking-wide">
+                    {v.change || "saved"}
+                  </span>
+                  <span className="text-xs text-ink-mute">
+                    {v.voice_id || "—"} · {v.language_pref || "—"} ·
+                    {" "}{v.opener_variant || "—"}
+                  </span>
+                  <span className="ml-auto text-[11px] text-ink-mute font-mono">
+                    {new Date(v.started_at).toLocaleString()}
+                  </span>
+                </button>
+                {open === v.run_id && (
+                  <pre className="px-3 pb-3 pt-1 text-[11px] text-ink-text whitespace-pre-wrap font-mono leading-relaxed border-t border-ink-line">
+                    {promptText}
+                  </pre>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === "trials" && trials.length === 0 && !busy && (
+          <p className="text-sm text-ink-mute">
+            No previews yet — start a text or voice chat and it will appear here.
+          </p>
+        )}
+
+        {tab === "trials" && trials.length > 0 && (
+          <div className="grid gap-2">
+            {trials.map((t) => (
+              <div
+                key={t.run_id}
+                className="flex items-center gap-3 rounded-lg border border-ink-line bg-ink px-3 py-2 text-xs"
+              >
+                <span className="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wide bg-ink-line text-ink-text">
+                  {t.mode}
+                </span>
+                <span className="text-ink-text">
+                  {t.agent_name || "(no agent)"}
+                </span>
+                <span className="text-ink-mute">
+                  {t.voice_id || "—"} · {t.language_pref || "—"}
+                </span>
+                <span className="ml-auto text-ink-mute font-mono">
+                  {t.turn_count} turns
+                </span>
+                <span className="text-ink-mute font-mono">
+                  {new Date(t.started_at).toLocaleString()}
+                </span>
+              </div>
+            ))}
           </div>
         )}
       </CardContent>

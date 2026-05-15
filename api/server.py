@@ -422,6 +422,83 @@ async def stream_recording(call_id: str, request: Request) -> StreamingResponse:
 
 
 # ============================================================================
+# Handoffs (RM context-card delivery)
+# ============================================================================
+
+@app.post("/api/calls/{call_id}/handoff")
+async def trigger_handoff(call_id: str,
+                          _user: dict = Depends(require_user)) -> dict[str, Any]:
+    """Manually create / resend a handoff for a HOT or WARM call. Used by
+    the call detail page's 'Resend to RM' button."""
+    from voice_agents.handoff import dispatch_handoff
+    res = await dispatch_handoff(call_id)
+    if not res:
+        raise HTTPException(409, "no HOT/WARM analysis available for this call")
+    return res
+
+
+@app.get("/api/handoffs")
+async def list_handoffs_route(
+    since_days: int | None = None,
+    _user: dict = Depends(require_user),
+) -> list[dict[str, Any]]:
+    return db.list_handoffs(since_days=since_days)
+
+
+@app.get("/api/handoffs/today")
+async def handoffs_today(_user: dict = Depends(require_user)) -> dict[str, int]:
+    return {"count": db.handoffs_today_count()}
+
+
+# --- public (unauth) — the WhatsApp link the RM taps on their phone ---------
+
+@app.get("/api/public/handoff/{token}")
+async def get_public_handoff(token: str) -> dict[str, Any]:
+    """No auth — the link is gated by the HMAC token. On open we mark the
+    handoff as 'opened' so the dashboard can show delivery confirmation."""
+    from voice_agents.handoff import parse_card_token
+    handoff_id = parse_card_token(token)
+    if not handoff_id:
+        raise HTTPException(404, "invalid or expired card link")
+    handoff = db.get_handoff(handoff_id)
+    if not handoff:
+        raise HTTPException(404, "handoff not found")
+    call = db.get_call(handoff["call_id"]) or {}
+    lead = db.get_lead(handoff["lead_id"]) or {}
+    import json as _json
+    analysis: dict[str, Any] = {}
+    if call.get("analysis_json"):
+        try:
+            analysis = _json.loads(call["analysis_json"])
+        except Exception:
+            pass
+    transcript = db.list_turns(handoff["call_id"])
+
+    db.mark_handoff_opened(handoff_id)
+
+    return {
+        "score":      handoff.get("score"),
+        "channel":    handoff.get("channel"),
+        "agent_name": handoff.get("agent_name"),
+        "sent_at":    handoff.get("sent_at"),
+        "opened_at":  handoff.get("opened_at"),
+        "lead": {
+            "name":          lead.get("name"),
+            "phone":         lead.get("phone"),
+            "language_pref": lead.get("language_pref"),
+            "notes":         lead.get("notes"),
+        },
+        "call": {
+            "id":               call.get("id"),
+            "duration_seconds": call.get("duration_seconds"),
+            "summary":          call.get("summary"),
+        },
+        "analysis":   analysis,
+        "transcript": transcript,
+    }
+
+
+# ============================================================================
 # Agents (Campaign Studio · saved-agent registry)
 # ============================================================================
 
@@ -440,35 +517,8 @@ class AgentIn(BaseModel):
 
 def _log_agent_to_mlflow(agent_row: dict[str, Any], change: str) -> str | None:
     """One MLflow run per save → builds prompt-version history. Returns run_id."""
-    try:
-        import mlflow
-        from pathlib import Path as _Path
-        uri = os.getenv("MLFLOW_TRACKING_URI",
-                        "file://" + str(_Path(__file__).resolve().parents[1] / "mlruns"))
-        mlflow.set_tracking_uri(uri)
-        mlflow.set_experiment("agent-prompts")
-        with mlflow.start_run(run_name=f"{agent_row['name']}-v{agent_row['version']}") as r:
-            mlflow.log_params({
-                "agent_id":       agent_row["id"],
-                "agent_name":     agent_row.get("agent_name") or "",
-                "brand":          agent_row.get("brand") or "",
-                "voice_id":       agent_row.get("voice_id") or "",
-                "language_pref": agent_row.get("language_pref") or "",
-                "opener_variant": agent_row.get("opener_variant") or "",
-                "version":        agent_row["version"],
-                "change":         change,
-            })
-            mlflow.set_tags({"name": agent_row["name"]})
-            # The actual prompt blob as an artifact so version diffs are inspectable.
-            import tempfile, json as _json
-            with tempfile.TemporaryDirectory() as tmp:
-                p = _Path(tmp) / "agent.json"
-                p.write_text(_json.dumps(agent_row, indent=2, ensure_ascii=False))
-                mlflow.log_artifact(str(p))
-            return r.info.run_id
-    except Exception as exc:
-        log.warning("mlflow agent log failed (non-fatal): %s", exc)
-        return None
+    from voice_agents.mlflow_prompts import log_agent_version
+    return log_agent_version(agent_row, change=change)
 
 
 @app.get("/api/agents")
@@ -483,6 +533,39 @@ async def get_agent(agent_id: str,
     if not row:
         raise HTTPException(404, "agent not found")
     return row
+
+
+@app.get("/api/agents/{agent_id}/versions")
+async def get_agent_versions(
+    agent_id: str, _user: dict = Depends(require_user),
+) -> list[dict[str, Any]]:
+    """MLflow prompt-version history for this agent (newest first)."""
+    if not db.get_agent(agent_id):
+        raise HTTPException(404, "agent not found")
+    from voice_agents.mlflow_prompts import list_agent_versions
+    return list_agent_versions(agent_id)
+
+
+@app.get("/api/agents/{agent_id}/versions/{run_id}/prompt")
+async def get_agent_version_prompt(
+    agent_id: str, run_id: str, _user: dict = Depends(require_user),
+) -> dict[str, Any]:
+    """Read back one version's system_prompt.md artifact."""
+    if not db.get_agent(agent_id):
+        raise HTTPException(404, "agent not found")
+    from voice_agents.mlflow_prompts import get_agent_version_prompt as _get
+    text = _get(run_id)
+    return {"run_id": run_id, "system_prompt": text or ""}
+
+
+@app.get("/api/studio/trials")
+async def get_studio_trials(
+    agent_id: str | None = None,
+    _user: dict = Depends(require_user),
+) -> list[dict[str, Any]]:
+    """List recent Studio simulator runs (text + voice)."""
+    from voice_agents.mlflow_prompts import list_studio_trials
+    return list_studio_trials(agent_id=agent_id)
 
 
 @app.post("/api/agents", status_code=201)
@@ -568,6 +651,8 @@ class SimulateTextIn(BaseModel):
     persona: SimulatePersona = Field(default_factory=SimulatePersona)
     history: list[SimulateTextTurn] = Field(default_factory=list)
     message: str | None = None               # the RM-as-lead reply; null = ask for opener
+    trial_id: str | None = None              # frontend-generated; groups turns into one MLflow run
+    agent_id: str | None = None              # if the trial is rooted on a saved Agent
 
 
 _OPENER_VARIANT_HINTS = {
@@ -618,6 +703,64 @@ def _persona_system_prompt(p: SimulatePersona) -> str:
         "the agent. Keep replies short (1–3 sentences)."
     )
     return base + "\n# CAMPAIGN OVERRIDES\n\n" + "\n\n".join(extras) + "\n"
+
+
+@app.post("/api/simulate/preview-prompt")
+async def simulate_preview_prompt(
+    persona: SimulatePersona,
+    _user: dict = Depends(require_user),
+) -> dict[str, str]:
+    """Returns the exact composed system prompt that would be sent to
+    the LLM for this persona. Studio uses this to render the collapsible
+    'Runtime prompt' panel — so the RM can see how the opener, language
+    rules, and lead notes get layered into the final instructions."""
+    return {"system_prompt": _persona_system_prompt(persona)}
+
+
+# Studio text trials are stateless on the wire but stateful in MLflow — the
+# frontend reuses one trial_id per chat session so we accumulate turns into
+# a single run instead of creating one per send.
+_studio_text_trials: dict[str, Any] = {}
+
+
+def _studio_text_trial(trial_id: str | None, persona: SimulatePersona,
+                       agent_id: str | None) -> Any | None:
+    """Get-or-create the StudioTrial for a text chat session."""
+    if not trial_id:
+        return None
+    cached = _studio_text_trials.get(trial_id)
+    if cached:
+        return cached
+    try:
+        from voice_agents.mlflow_prompts import StudioTrial
+        trial = StudioTrial.start(
+            mode="text",
+            persona_snapshot=persona.model_dump(),
+            agent_id=agent_id,
+        )
+        trial.log_system_prompt(_persona_system_prompt(persona))
+        _studio_text_trials[trial_id] = trial
+        return trial
+    except Exception as exc:
+        log.warning("studio text trial start failed: %s", exc)
+        return None
+
+
+@app.post("/api/simulate/text/end")
+async def simulate_text_end(
+    payload: dict[str, Any],
+    _user: dict = Depends(require_user),
+) -> dict[str, bool]:
+    """Close out a text trial's MLflow run. Frontend calls this on reset /
+    unmount / mode-switch so the run gets transcript + turn metrics."""
+    trial_id = (payload or {}).get("trial_id")
+    trial = _studio_text_trials.pop(trial_id, None) if trial_id else None
+    if trial:
+        try:
+            trial.end()
+        except Exception as exc:
+            log.warning("studio text trial end failed: %s", exc)
+    return {"ended": bool(trial)}
 
 
 @app.post("/api/simulate/text")
@@ -694,10 +837,18 @@ async def simulate_text(
             len(msg.get("reasoning_content") or ""),
         )
         raise HTTPException(502, "LLM returned empty content")
+    trial = _studio_text_trial(payload.trial_id, payload.persona, payload.agent_id)
+    if trial:
+        # Mirror the user message + agent reply onto the trial's transcript.
+        if payload.message and payload.message.strip():
+            trial.log_turn("user", payload.message.strip())
+        trial.log_turn("agent", reply)
+
     return {
         "reply": reply,
         "language": payload.persona.language_pref,
         "model": model,
+        "trial_id": payload.trial_id,
     }
 
 
@@ -772,9 +923,9 @@ async def _start_webrtc_pipeline(
     )
     context_aggregator = LLMContextAggregatorPair(context)
 
-    # Browser sim doesn't write to the DB or to mlflow — it's a preview. We
-    # still buffer the conversation in-memory to mirror it back over the
-    # data channel for the side-by-side transcript panel.
+    # Browser sim doesn't write to the DB — it's a preview — but we DO log
+    # the session to MLflow as a Studio trial so the RM can compare prompt
+    # iterations across runs.
     convo_log = ConversationLog(
         log_dir=LOG_DIR,
         room_name=f"sim-{webrtc_connection.pc_id[:8]}",
@@ -783,6 +934,18 @@ async def _start_webrtc_pipeline(
     )
     user_log = UserTranscriptLogger(convo_log)
     assistant_log = AssistantTranscriptLogger(convo_log)
+
+    try:
+        from voice_agents.mlflow_prompts import StudioTrial
+        voice_trial = StudioTrial.start(
+            mode="voice",
+            persona_snapshot=persona.model_dump(),
+            agent_id=None,
+        )
+        voice_trial.log_system_prompt(system_prompt)
+    except Exception as exc:
+        log.warning("studio voice trial start failed: %s", exc)
+        voice_trial = None
 
     # Custom broadcaster — pushes agent turns directly to the browser via
     # the WebRTC data channel as `{"type":"agent_turn", "text":"..."}`. We
@@ -824,6 +987,11 @@ async def _start_webrtc_pipeline(
                         )
                     except Exception as exc:
                         log.warning("send_app_message failed: %s", exc)
+                    if voice_trial:
+                        try:
+                            voice_trial.log_turn("agent", text)
+                        except Exception:
+                            pass
             await self.push_frame(frame, direction)
 
     bot_broadcaster = BotTranscriptBroadcaster(webrtc_connection)
@@ -898,7 +1066,22 @@ async def _start_webrtc_pipeline(
                 pass
             _webrtc_personas.pop(webrtc_connection.pc_id, None)
 
-    asyncio.create_task(_run())
+    async def _run_with_trial() -> None:
+        try:
+            await _run()
+        finally:
+            if voice_trial:
+                try:
+                    # Pull the user side of the transcript out of convo_log
+                    # (we already streamed agent turns into the trial above).
+                    for t in (convo_log._state.get("turns") or []):  # noqa: SLF001
+                        if t.get("speaker") == "user" and t.get("text"):
+                            voice_trial.log_turn("user", t["text"])
+                    voice_trial.end()
+                except Exception as exc:
+                    log.warning("studio voice trial end failed: %s", exc)
+
+    asyncio.create_task(_run_with_trial())
 
 
 class _OfferRequestData(BaseModel):
@@ -1288,6 +1471,23 @@ async def ws_handler(websocket: WebSocket) -> None:
         agent_name=lead_agent_name,
         brand=(agent_row or {}).get("brand"),
     )
+
+    # Snapshot the runtime composed prompt onto the call's MLflow run so the
+    # Studio / call-detail UI can show exactly what the model saw.
+    try:
+        from voice_agents.mlflow_prompts import log_runtime_prompt
+        log_runtime_prompt(
+            call_id=_mlflow_call_id,
+            system_prompt=system_prompt,
+            agent_id=(agent_row or {}).get("id"),
+            agent_name=lead_agent_name,
+            lead_name=lead_name,
+            language=lead_lang.value if lead_lang else None,
+            voice=speaker,
+        )
+    except Exception as exc:
+        log.warning("runtime prompt log failed (non-fatal): %s", exc)
+
     context = LLMContext(
         messages=[
             {"role": "system", "content": system_prompt},

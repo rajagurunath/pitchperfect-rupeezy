@@ -4,11 +4,12 @@ import { usePathname } from "next/navigation";
 import { Sidebar } from "@/components/sidebar";
 
 const FULL_BLEED = new Set(["/", "/pricing", "/contact", "/login"]);
+const FULL_BLEED_PREFIXES = ["/handoff/"];
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const path = usePathname() ?? "/";
 
-  if (FULL_BLEED.has(path)) {
+  if (FULL_BLEED.has(path) || FULL_BLEED_PREFIXES.some((p) => path.startsWith(p))) {
     return <>{children}</>;
   }
 
