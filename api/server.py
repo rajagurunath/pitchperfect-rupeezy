@@ -84,6 +84,15 @@ loguru_logger.add(sys.stderr, level=os.getenv("LOG_LEVEL", "INFO"))
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)-22s %(message)s")
 log = logging.getLogger("api.server")
 
+# Enable MLflow tracing for every openai-SDK call (Pipecat side). The
+# Studio text simulator uses raw httpx and is instrumented separately
+# via mlflow.start_span() inside /api/simulate/text.
+try:
+    from voice_agents.mlflow_tracker import enable_openai_autolog
+    enable_openai_autolog()
+except Exception as _exc:
+    log.warning("mlflow autolog setup skipped: %s", _exc)
+
 LOG_DIR = Path(os.getenv("CONVERSATION_LOG_DIR", "logs"))
 PORT = int(os.getenv("API_PORT", "8000"))
 NGROK_API = os.getenv("NGROK_API", "http://127.0.0.1:4040/api/tunnels")
@@ -1078,17 +1087,72 @@ async def simulate_text(
             "enable_thinking": False,
         }
 
-    async with httpx.AsyncClient(timeout=120) as client:
-        r = await client.post(
-            f"{base_url}/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}",
-                     "Content-Type": "application/json"},
-            json=req,
-        )
-    if r.status_code != 200:
-        log.error("simulate LLM failed: %d %s", r.status_code, r.text[:300])
-        raise HTTPException(502, f"upstream LLM returned {r.status_code}")
-    body = r.json()
+    # Manual MLflow trace around the raw httpx LLM call so the Studio
+    # text simulator shows up in the Traces tab alongside Pipecat (which
+    # autolog covers automatically). Use a contextlib helper so a missing
+    # mlflow doesn't tank the request.
+    import contextlib
+    @contextlib.contextmanager
+    def _trace_studio_llm():
+        try:
+            import mlflow as _mf
+            from voice_agents.mlflow_prompts import (
+                _configure as _mlconf,
+                _ensure_experiment,
+                _STUDIO_EXPERIMENT,
+            )
+            mf = _mlconf()
+            if mf is None:
+                yield None
+                return
+            # Anchor the trace to the studio-trials experiment so it
+            # appears in the right Traces tab, not under Default.
+            _ensure_experiment(mf, _STUDIO_EXPERIMENT)
+            with _mf.start_span(name="studio.simulate_text") as span:
+                try:
+                    span.set_inputs({
+                        "model": model,
+                        "messages": messages,
+                        "temperature": req.get("temperature"),
+                        "session_id": session_id,
+                        "agent_id": payload.agent_id,
+                    })
+                except Exception:
+                    pass
+                yield span
+        except Exception as exc:
+            log.debug("studio trace skipped: %s", exc)
+            yield None
+
+    with _trace_studio_llm() as _span:
+        async with httpx.AsyncClient(timeout=120) as client:
+            r = await client.post(
+                f"{base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}",
+                         "Content-Type": "application/json"},
+                json=req,
+            )
+        if r.status_code != 200:
+            log.error("simulate LLM failed: %d %s", r.status_code, r.text[:300])
+            if _span is not None:
+                try:
+                    _span.set_outputs({"status_code": r.status_code,
+                                       "error": r.text[:500]})
+                except Exception:
+                    pass
+            raise HTTPException(502, f"upstream LLM returned {r.status_code}")
+        body = r.json()
+        if _span is not None:
+            try:
+                _span.set_outputs({
+                    "reply": (body.get("choices", [{}])[0]
+                                  .get("message", {})
+                                  .get("content", "") or "")[:2000],
+                    "finish_reason": body.get("choices", [{}])[0].get("finish_reason"),
+                    "usage": body.get("usage"),
+                })
+            except Exception:
+                pass
     msg = body["choices"][0]["message"]
     reply = (msg.get("content") or "").strip()
     if not reply:

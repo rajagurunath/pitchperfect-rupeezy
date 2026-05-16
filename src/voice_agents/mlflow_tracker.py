@@ -39,6 +39,32 @@ _io_pool = concurrent.futures.ThreadPoolExecutor(
 )
 
 
+_AUTOLOG_ENABLED = False
+
+
+def enable_openai_autolog() -> None:
+    """Turn on mlflow.openai.autolog() so every openai-SDK call (Pipecat's
+    OpenAILLMService → openai.AsyncOpenAI) emits an MLflow Trace with
+    prompt + completion + tokens + latency. Safe to call repeatedly — the
+    underlying mlflow.openai.autolog() is idempotent but we still guard
+    with a module flag to avoid log spam. Call this once at process
+    startup (api/server.py)."""
+    global _AUTOLOG_ENABLED
+    if _AUTOLOG_ENABLED or not _ENABLED:
+        return
+    try:
+        # Make sure the tracking URI is configured so spans land in the
+        # SQLite store alongside runs.
+        from .mlflow_prompts import _tracking_uri
+        import mlflow
+        mlflow.set_tracking_uri(_tracking_uri())
+        mlflow.openai.autolog()
+        _AUTOLOG_ENABLED = True
+        log.info("mlflow openai.autolog enabled — LLM calls will appear as Traces")
+    except Exception as exc:
+        log.warning("could not enable mlflow.openai.autolog: %s", exc)
+
+
 def _fire(fn, *args, **kwargs) -> None:
     """Submit a write to the background pool, swallowing any exception so
     nothing about MLflow can ever propagate into the call hot path."""
