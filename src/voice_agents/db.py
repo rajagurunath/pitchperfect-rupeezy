@@ -63,6 +63,7 @@ CREATE TABLE IF NOT EXISTS calls (
     analysis_json TEXT,                      -- full JSON from post-call analyzer
     duration_seconds INTEGER,
     recording_url TEXT,
+    mlflow_run_id TEXT,                      -- MLflow run id; analyzer appends to it
     started_at TEXT,
     ended_at TEXT,
     created_at TEXT NOT NULL,
@@ -149,6 +150,42 @@ CREATE INDEX IF NOT EXISTS handoffs_call_idx  ON handoffs(call_id);
 CREATE INDEX IF NOT EXISTS handoffs_lead_idx  ON handoffs(lead_id);
 CREATE INDEX IF NOT EXISTS handoffs_token_idx ON handoffs(card_token);
 CREATE INDEX IF NOT EXISTS handoffs_agent_idx ON handoffs(agent_id);
+
+-- Hackathon judges / mentors who self-onboard to try the app. Email-only,
+-- no verification — the intent is to collect who tried it, not auth them.
+-- The `org_type` is whatever they selected (judge/mentor/other) at signup.
+CREATE TABLE IF NOT EXISTS visitors (
+    id           TEXT PRIMARY KEY,
+    email        TEXT NOT NULL UNIQUE,
+    name         TEXT,
+    org_type     TEXT,                    -- 'judge' | 'mentor' | 'other'
+    created_at   TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS visitors_email_idx ON visitors(email);
+
+-- Studio text-simulator sessions, per user (admin OR visitor). Each session
+-- groups a conversation so the user can resume / scroll past sessions.
+CREATE TABLE IF NOT EXISTS studio_sessions (
+    id             TEXT PRIMARY KEY,
+    owner_sub      TEXT NOT NULL,           -- JWT sub claim: 'admin:<u>' or 'visitor:<id>'
+    title          TEXT,                    -- first user message, truncated
+    agent_id       TEXT,                    -- the saved agent in use (if any)
+    persona_json   TEXT,                    -- snapshot of persona overrides
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS studio_sessions_owner_idx ON studio_sessions(owner_sub, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS studio_messages (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT NOT NULL,
+    role        TEXT NOT NULL,             -- 'lead' (user) | 'agent'
+    content     TEXT NOT NULL,
+    ts          TEXT NOT NULL,
+    FOREIGN KEY (session_id) REFERENCES studio_sessions(id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS studio_messages_session_idx ON studio_messages(session_id, id);
 """
 
 
@@ -176,6 +213,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE leads ADD COLUMN opening_line TEXT")
     if "campaign" not in lead_cols:
         conn.execute("ALTER TABLE leads ADD COLUMN campaign TEXT")
+    # MLflow run id for this call — lets the analyzer (which runs in a
+    # separate request after the in-memory tracker is gone) find and
+    # append to the original run instead of orphaning to a new one.
+    if "mlflow_run_id" not in cols:
+        conn.execute("ALTER TABLE calls ADD COLUMN mlflow_run_id TEXT")
 
 
 def _ensure_init() -> None:
@@ -799,3 +841,131 @@ def funnel_metrics() -> dict[str, int]:
         "warm": warm,
         "cold": cold,
     }
+
+
+# ── visitors (judges/mentors who self-onboard) ────────────────────────────────
+
+def upsert_visitor(email: str, name: str | None,
+                   org_type: str | None) -> dict[str, Any]:
+    """Insert or refresh a visitor by email. Returns the row (always)."""
+    email = (email or "").strip().lower()
+    if not email or "@" not in email:
+        raise ValueError("valid email required")
+    now = now_iso()
+    with with_conn() as c:
+        existing = c.execute(
+            "SELECT id, created_at FROM visitors WHERE email=?", (email,)
+        ).fetchone()
+        if existing:
+            vid = existing["id"]
+            c.execute(
+                "UPDATE visitors SET name=COALESCE(?, name), "
+                "org_type=COALESCE(?, org_type), last_seen_at=? WHERE id=?",
+                (name, org_type, now, vid),
+            )
+        else:
+            vid = new_id("vis")
+            c.execute(
+                "INSERT INTO visitors (id, email, name, org_type, "
+                "created_at, last_seen_at) VALUES (?,?,?,?,?,?)",
+                (vid, email, name, org_type, now, now),
+            )
+        row = c.execute("SELECT * FROM visitors WHERE id=?", (vid,)).fetchone()
+    return dict(row)
+
+
+def get_visitor(visitor_id: str) -> dict[str, Any] | None:
+    with with_conn() as c:
+        r = c.execute("SELECT * FROM visitors WHERE id=?", (visitor_id,)).fetchone()
+    return dict(r) if r else None
+
+
+def list_visitors(limit: int = 200) -> list[dict[str, Any]]:
+    with with_conn() as c:
+        rows = c.execute(
+            "SELECT * FROM visitors ORDER BY last_seen_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ── studio sessions (text simulator persistence) ─────────────────────────────
+
+def create_studio_session(owner_sub: str, agent_id: str | None,
+                          persona_json: str | None,
+                          title: str | None = None) -> str:
+    sid = new_id("ssn")
+    now = now_iso()
+    with with_conn() as c:
+        c.execute(
+            "INSERT INTO studio_sessions (id, owner_sub, title, agent_id, "
+            "persona_json, created_at, updated_at) VALUES (?,?,?,?,?,?,?)",
+            (sid, owner_sub, title, agent_id, persona_json, now, now),
+        )
+    return sid
+
+
+def touch_studio_session(session_id: str, title: str | None = None) -> None:
+    """Bump updated_at and optionally set the title (first message)."""
+    now = now_iso()
+    with with_conn() as c:
+        if title:
+            c.execute(
+                "UPDATE studio_sessions SET updated_at=?, "
+                "title=COALESCE(title, ?) WHERE id=?",
+                (now, title, session_id),
+            )
+        else:
+            c.execute(
+                "UPDATE studio_sessions SET updated_at=? WHERE id=?",
+                (now, session_id),
+            )
+
+
+def append_studio_message(session_id: str, role: str, content: str) -> None:
+    with with_conn() as c:
+        c.execute(
+            "INSERT INTO studio_messages (session_id, role, content, ts) "
+            "VALUES (?,?,?,?)",
+            (session_id, role, content, now_iso()),
+        )
+
+
+def list_studio_sessions(owner_sub: str, limit: int = 50) -> list[dict[str, Any]]:
+    with with_conn() as c:
+        rows = c.execute(
+            "SELECT s.*, "
+            "  (SELECT COUNT(*) FROM studio_messages m WHERE m.session_id=s.id) AS message_count "
+            "FROM studio_sessions s WHERE owner_sub=? "
+            "ORDER BY updated_at DESC LIMIT ?",
+            (owner_sub, limit),
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_studio_session(session_id: str,
+                       owner_sub: str | None = None) -> dict[str, Any] | None:
+    with with_conn() as c:
+        row = c.execute("SELECT * FROM studio_sessions WHERE id=?",
+                        (session_id,)).fetchone()
+        if not row:
+            return None
+        if owner_sub and row["owner_sub"] != owner_sub:
+            return None  # not yours
+        msgs = c.execute(
+            "SELECT role, content, ts FROM studio_messages "
+            "WHERE session_id=? ORDER BY id ASC",
+            (session_id,),
+        ).fetchall()
+    session = dict(row)
+    session["messages"] = [dict(m) for m in msgs]
+    return session
+
+
+def delete_studio_session(session_id: str, owner_sub: str) -> bool:
+    with with_conn() as c:
+        cur = c.execute(
+            "DELETE FROM studio_sessions WHERE id=? AND owner_sub=?",
+            (session_id, owner_sub),
+        )
+        return cur.rowcount > 0

@@ -13,6 +13,7 @@ and pipecat_logger can access it without needing it threaded through APIs.
 """
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import os
@@ -27,6 +28,32 @@ _EXPERIMENT = os.getenv("MLFLOW_EXPERIMENT", "voice-agent-calls")
 
 # Global registry keyed by call_id → CallTracker
 _active: dict[str, "CallTracker"] = {}
+
+# Single-worker background executor so MLflow disk + SQLite writes happen
+# off the Pipecat audio thread. Critical for live calls: even occasional
+# multi-hundred-ms IO must NEVER block the STT→LLM→TTS pipeline. Single
+# worker (not a pool) because mlflow uses thread-local active-run state —
+# parallel writes would race. Daemon so the process can exit cleanly.
+_io_pool = concurrent.futures.ThreadPoolExecutor(
+    max_workers=1, thread_name_prefix="mlflow-async"
+)
+
+
+def _fire(fn, *args, **kwargs) -> None:
+    """Submit a write to the background pool, swallowing any exception so
+    nothing about MLflow can ever propagate into the call hot path."""
+    if not _ENABLED:
+        return
+    def _safe():
+        try:
+            fn(*args, **kwargs)
+        except Exception as exc:
+            log.warning("mlflow async write failed: %s", exc)
+    try:
+        _io_pool.submit(_safe)
+    except Exception as exc:
+        # Pool is shutting down (process exit) — fine to drop the write.
+        log.debug("mlflow pool unavailable: %s", exc)
 
 
 def get_tracker(call_id: str | None) -> "CallTracker | None":
@@ -62,19 +89,33 @@ class CallTracker:
             return
         try:
             import mlflow  # lazy import — not required for the rest of the app
-            # Anchor to repo root so `mlflow ui` (started from anywhere) and
-            # the API server (CWD might differ from repo root) write to the
-            # same store. Override via MLFLOW_TRACKING_URI in .env.
-            default_uri = "file://" + str(
-                Path(__file__).resolve().parents[2] / "mlruns"
-            )
-            mlflow.set_tracking_uri(
-                os.getenv("MLFLOW_TRACKING_URI", default_uri)
-            )
-            mlflow.set_experiment(_EXPERIMENT)
+            # SQLite backend (MLflow 3.12+ requires SQL for the new Traces /
+            # Datasets UI tabs; FileStore returns 500s on those endpoints).
+            # Both the SQLite file and the artifact root are anchored to the
+            # repo root so `mlflow ui` started from any CWD sees the same data.
+            from .mlflow_prompts import _tracking_uri, _ensure_experiment
+            mlflow.set_tracking_uri(_tracking_uri())
+            _ensure_experiment(mlflow, _EXPERIMENT)
+            # Defensive: if a previous request leaked an active run (e.g.
+            # a Studio trial that didn't end cleanly, or any other code path
+            # that opened a run without a context manager), close it first.
+            # Without this, mlflow.start_run() raises "Run with UUID X is
+            # already active" and the call is never recorded.
+            leaked = mlflow.active_run()
+            if leaked is not None:
+                log.warning("ending leaked active mlflow run %s before start",
+                            leaked.info.run_id)
+                mlflow.end_run()
             self._run = mlflow.start_run(
                 run_name=f"{transport}-{self._call_id[:8]}"
             )
+            # Persist run_id so the analyzer (separate request, after we
+            # remove ourselves from _active) can find and append to this run.
+            try:
+                from . import db as _db
+                _db.update_call(self._call_id, mlflow_run_id=self._run.info.run_id)
+            except Exception as _exc:
+                log.warning("could not persist mlflow_run_id to db: %s", _exc)
             mlflow.log_params({
                 "call_id":       self._call_id,
                 "lead_id":       self._lead.get("id", ""),
@@ -97,69 +138,119 @@ class CallTracker:
             log.info("mlflow run started: %s (call=%s transport=%s)",
                      self._run.info.run_id, self._call_id, transport)
         except Exception as exc:
-            log.warning("mlflow start failed (non-fatal): %s", exc)
+            log.error("mlflow start FAILED for call=%s: %s",
+                      self._call_id, exc, exc_info=True)
 
     def log_turn(self, speaker: str, text: str) -> None:
-        """Accumulate one conversation turn; uploaded as artifact on end()."""
+        """Append one conversation turn and queue an MLflow artifact update.
+
+        Critical: this method is called from inside the Pipecat frame
+        processor on the audio path. The in-memory append is synchronous
+        (always works), but the MLflow IO is submitted to a background
+        executor so MLflow slowness or failure CANNOT delay the next TTS
+        chunk. If the process crashes mid-call, the latest queued write
+        may be lost — acceptable; the DB transcripts table is the
+        durable source of truth."""
         if not _ENABLED or self._run is None:
             return
-        self._turns.append({"speaker": speaker, "text": text})
+        from datetime import datetime, timezone
+        self._turns.append({
+            "ts": datetime.now(tz=timezone.utc).isoformat(),
+            "speaker": speaker,
+            "text": text,
+        })
+        run_id = self._run.info.run_id
+        # Snapshot the turns list so the background thread can't see a
+        # half-mutated list if another turn lands while it's serialising.
+        turns_snapshot = list(self._turns)
+        _fire(self._write_turn_artifact, run_id, turns_snapshot)
+
+    @staticmethod
+    def _write_turn_artifact(run_id: str, turns: list[dict[str, str]]) -> None:
+        """Background-thread worker: re-upload transcript.json + bump
+        turn_count metric. Runs under its own start_run context so it
+        never interferes with whatever run the main thread has active."""
+        import mlflow
+        with mlflow.start_run(run_id=run_id):
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "transcript.json"
+                path.write_text(json.dumps(turns, ensure_ascii=False, indent=2))
+                mlflow.log_artifact(str(path))
+            mlflow.log_metric("turn_count", float(len(turns)))
 
     def log_analysis(self, analysis: dict[str, Any]) -> None:
-        """Log post-call analyzer output as MLflow metrics, tags, and artifact."""
+        """Queue post-call analyzer output (metrics + tags + artifact) on
+        the background thread."""
         if not _ENABLED or self._run is None:
             return
-        try:
-            import mlflow
-            metrics: dict[str, float] = {}
-            for key in ("interest_level", "objection_intensity", "follow_up_priority"):
-                val = analysis.get(key)
-                if isinstance(val, (int, float)):
-                    metrics[key] = float(val)
+        run_id = self._run.info.run_id
+        _fire(self._write_analysis, run_id, dict(analysis))
+
+    @staticmethod
+    def _write_analysis(run_id: str, analysis: dict[str, Any]) -> None:
+        import mlflow
+        metrics: dict[str, float] = {}
+        for key in ("interest_level", "objection_intensity", "follow_up_priority"):
+            val = analysis.get(key)
+            if isinstance(val, (int, float)):
+                metrics[key] = float(val)
+        tags: dict[str, str] = {}
+        if analysis.get("score"):
+            tags["score"] = str(analysis["score"])
+        if analysis.get("sentiment"):
+            tags["sentiment"] = str(analysis["sentiment"])
+        if analysis.get("next_action"):
+            tags["next_action"] = str(analysis["next_action"])[:250]
+        with mlflow.start_run(run_id=run_id):
             if metrics:
                 mlflow.log_metrics(metrics)
-
-            tags: dict[str, str] = {}
-            if analysis.get("score"):
-                tags["score"] = str(analysis["score"])
-            if analysis.get("sentiment"):
-                tags["sentiment"] = str(analysis["sentiment"])
-            if analysis.get("next_action"):
-                tags["next_action"] = str(analysis["next_action"])[:250]
             if tags:
                 mlflow.set_tags(tags)
-
-            self._log_dict_artifact(analysis, "analysis.json")
-        except Exception as exc:
-            log.warning("mlflow log_analysis failed (non-fatal): %s", exc)
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "analysis.json"
+                path.write_text(json.dumps(analysis, ensure_ascii=False, indent=2))
+                mlflow.log_artifact(str(path))
 
     def end(self, duration_seconds: int | None = None,
             status: str = "FINISHED") -> None:
-        """Upload transcript artifact, log final metrics, close the run."""
+        """Queue final transcript upload, metrics, and run close on the
+        background thread. Returns immediately so call teardown isn't
+        delayed by MLflow IO."""
         if not _ENABLED or self._run is None:
             return
-        try:
-            import mlflow
-            user_turns  = sum(1 for t in self._turns if t["speaker"] == "user")
-            agent_turns = sum(1 for t in self._turns if t["speaker"] == "agent")
-            metrics: dict[str, float] = {
-                "turn_count":  float(len(self._turns)),
-                "user_turns":  float(user_turns),
-                "agent_turns": float(agent_turns),
-            }
-            if duration_seconds is not None:
-                metrics["duration_seconds"] = float(duration_seconds)
-            mlflow.log_metrics(metrics)
+        run_id = self._run.info.run_id
+        turns_snapshot = list(self._turns)
+        _fire(self._finalize, run_id, self._call_id, turns_snapshot,
+              duration_seconds, status)
+        _active.pop(self._call_id, None)
+        self._run = None
 
-            self._log_dict_artifact(self._turns, "transcript.json")
-            mlflow.end_run(status=status)
-            log.info("mlflow run ended: %s (call=%s status=%s)",
-                     self._run.info.run_id, self._call_id, status)
-        except Exception as exc:
-            log.warning("mlflow end failed (non-fatal): %s", exc)
-        finally:
-            _active.pop(self._call_id, None)
-            self._run = None
+    @staticmethod
+    def _finalize(run_id: str, call_id: str,
+                  turns: list[dict[str, str]],
+                  duration_seconds: int | None, status: str) -> None:
+        """Background-thread worker for end()."""
+        import mlflow
+        user_turns = sum(1 for t in turns if t["speaker"] == "user")
+        agent_turns = sum(1 for t in turns if t["speaker"] == "agent")
+        metrics: dict[str, float] = {
+            "turn_count":  float(len(turns)),
+            "user_turns":  float(user_turns),
+            "agent_turns": float(agent_turns),
+        }
+        if duration_seconds is not None:
+            metrics["duration_seconds"] = float(duration_seconds)
+        with mlflow.start_run(run_id=run_id):
+            mlflow.log_metrics(metrics)
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp) / "transcript.json"
+                path.write_text(json.dumps(turns, ensure_ascii=False, indent=2))
+                mlflow.log_artifact(str(path))
+        # Use the client API for end_run to avoid touching the global
+        # active-run state from this background thread.
+        mlflow.MlflowClient().set_terminated(run_id, status=status)
+        log.info("mlflow run ended: %s (call=%s status=%s turns=%d)",
+                 run_id, call_id, status, len(turns))
 
     # ── helpers ────────────────────────────────────────────────────────────────
 

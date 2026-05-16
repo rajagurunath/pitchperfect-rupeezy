@@ -169,8 +169,15 @@ export const api = {
     message?: string;
     trial_id?: string;
     agent_id?: string;
+    session_id?: string;
   }) =>
-    asJson<{ reply: string; language: string | null; model: string; trial_id: string | null }>(
+    asJson<{
+      reply: string;
+      language: string | null;
+      model: string;
+      trial_id: string | null;
+      session_id: string;
+    }>(
       fetch("/api/simulate/text", {
         method: "POST",
         headers: jsonHeaders(),
@@ -184,6 +191,40 @@ export const api = {
       headers: jsonHeaders(),
       body: JSON.stringify({ trial_id }),
     }).catch(() => undefined),
+
+  // ── Studio sessions (persisted text conversations) ───────────────────────
+  studioSessionsList: () =>
+    asJson<{
+      sessions: {
+        id: string;
+        title: string | null;
+        agent_id: string | null;
+        message_count: number;
+        created_at: string;
+        updated_at: string;
+      }[];
+    }>(
+      fetch("/api/studio/sessions", { cache: "no-store", headers: authHeaders() }),
+    ),
+
+  studioSessionGet: (id: string) =>
+    asJson<{
+      id: string;
+      title: string | null;
+      agent_id: string | null;
+      persona_json: string | null;
+      created_at: string;
+      updated_at: string;
+      messages: { role: "lead" | "agent"; content: string; ts: string }[];
+    }>(
+      fetch(`/api/studio/sessions/${id}`, { cache: "no-store", headers: authHeaders() }),
+    ),
+
+  studioSessionDelete: (id: string) =>
+    fetch(`/api/studio/sessions/${id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    }).then((r) => r.ok),
 
   simulatePreviewPrompt: (persona: SimulatePersona) =>
     asJson<{ system_prompt: string }>(

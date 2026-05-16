@@ -15,9 +15,10 @@ import {
   loginRequest,
   setSession,
   useAuth,
+  visitorLogin,
 } from "@/lib/auth";
 import { Button, Card, CardContent, CardHeader, CardTitle, Input, Label } from "@/components/ui";
-import { ArrowRight, Lock, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, Lock, ShieldCheck, Sparkles, UserPlus } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,6 +27,29 @@ export default function LoginPage() {
   const [password, setPassword] = useState(DEFAULT_PASSWORD);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // Visitor (judge/mentor) signup state
+  const [visEmail, setVisEmail] = useState("");
+  const [visName, setVisName] = useState("");
+  const [visOrgType, setVisOrgType] = useState<"judge" | "mentor" | "other">("judge");
+  const [visBusy, setVisBusy] = useState(false);
+  const [visErr, setVisErr] = useState<string | null>(null);
+
+  async function onVisitorSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (DEMO_MODE) { router.push("/contact?from=login"); return; }
+    setVisBusy(true); setVisErr(null);
+    try {
+      const { token, profile } = await visitorLogin(
+        visEmail.trim(), visName.trim(), visOrgType,
+      );
+      setSession(token, profile);
+      router.replace("/operations");
+    } catch (e: any) {
+      setVisErr(e?.message ?? "signup failed");
+    } finally {
+      setVisBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (ready && isAuthed && !DEMO_MODE) router.replace("/operations");
@@ -167,6 +191,65 @@ export default function LoginPage() {
               )}
             </CardContent>
           </Card>
+
+          {/* ── Hackathon judges / mentors: email-only quick-try ──────────── */}
+          {!DEMO_MODE && (
+            <Card className="mt-5 border-ink-line bg-ink-card/60 backdrop-blur">
+              <CardHeader>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <UserPlus size={16} className="text-accent" />
+                  Try it as a judge or mentor
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-xs text-ink-mute mb-3">
+                  No password needed. Enter your email so we can credit your
+                  feedback later.
+                </p>
+                <form onSubmit={onVisitorSubmit} className="space-y-3">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vis-email">Email</Label>
+                    <Input
+                      id="vis-email"
+                      type="email"
+                      value={visEmail}
+                      onChange={(e) => setVisEmail(e.target.value)}
+                      placeholder="you@example.com"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vis-name">Name</Label>
+                    <Input
+                      id="vis-name"
+                      value={visName}
+                      onChange={(e) => setVisName(e.target.value)}
+                      placeholder="Full name"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="vis-org">I am a</Label>
+                    <select
+                      id="vis-org"
+                      value={visOrgType}
+                      onChange={(e) => setVisOrgType(e.target.value as any)}
+                      className="w-full bg-ink border border-ink-line rounded-md px-3 py-2 text-sm text-ink-text"
+                    >
+                      <option value="judge">Judge</option>
+                      <option value="mentor">Mentor</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  {visErr && <div className="text-hot text-xs">{visErr}</div>}
+                  <Button type="submit" disabled={visBusy} className="w-full group" variant="secondary">
+                    {visBusy ? "Setting up…" : "Continue to console"}
+                    {!visBusy && <ArrowRight size={14} className="ml-1 group-hover:translate-x-0.5 transition" />}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          )}
 
           <div className="mt-6 text-center text-[11px] text-ink-mute">
             By signing in you agree to our <a href="#" className="hover:text-ink-text">Terms</a> and <a href="#" className="hover:text-ink-text">Privacy Policy</a>.

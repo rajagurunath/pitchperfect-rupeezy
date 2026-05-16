@@ -73,6 +73,23 @@ export async function loginRequest(username: string, password: string) {
   return r.json() as Promise<{ token: string; profile: Profile }>;
 }
 
+export async function visitorLogin(
+  email: string,
+  name: string,
+  org_type: "judge" | "mentor" | "other",
+) {
+  const r = await fetch("/api/auth/visitor", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, name, org_type }),
+  });
+  if (!r.ok) {
+    const body = await r.text().catch(() => "");
+    throw new Error(`HTTP ${r.status}: ${body || "signup failed"}`);
+  }
+  return r.json() as Promise<{ token: string; profile: Profile }>;
+}
+
 export async function fetchMe(): Promise<Profile> {
   const t = getToken();
   if (!t) throw new Error("not logged in");

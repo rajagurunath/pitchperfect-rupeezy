@@ -173,12 +173,46 @@ async def auth_login(creds: LoginIn) -> dict[str, Any]:
 
 @app.get("/api/auth/me")
 async def auth_me(user: dict[str, Any] = Depends(require_user)) -> dict[str, Any]:
+    sub = user.get("sub", "")
+    # Strip the kind prefix so the UI sees a clean username.
+    username = sub.split(":", 1)[1] if ":" in sub else sub
     return {
-        "username": user["sub"],
+        "username": username,
         "display_name": user.get("name"),
         "email": user.get("email"),
         "role": user.get("role"),
+        "kind": "visitor" if sub.startswith("visitor:") else "admin",
     }
+
+
+class VisitorIn(BaseModel):
+    email: str
+    name: str | None = None
+    org_type: str | None = None  # 'judge' | 'mentor' | 'other'
+
+
+@app.post("/api/auth/visitor")
+async def auth_visitor(body: VisitorIn) -> dict[str, Any]:
+    """Self-onboard for hackathon judges and mentors. Email-only — no
+    verification. Idempotent: same email returns same visitor id."""
+    from api.auth import issue_visitor_token
+    try:
+        visitor = db.upsert_visitor(
+            email=body.email,
+            name=(body.name or None),
+            org_type=(body.org_type or "other"),
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    token = issue_visitor_token(visitor)
+    profile = {
+        "username": visitor["email"],
+        "display_name": visitor.get("name") or visitor["email"],
+        "email": visitor["email"],
+        "role": (visitor.get("org_type") or "visitor").capitalize(),
+        "kind": "visitor",
+    }
+    return {"token": token, "profile": profile}
 
 
 @app.get("/api/dashboard")
@@ -832,6 +866,43 @@ class SimulateTextIn(BaseModel):
     message: str | None = None               # the RM-as-lead reply; null = ask for opener
     trial_id: str | None = None              # frontend-generated; groups turns into one MLflow run
     agent_id: str | None = None              # if the trial is rooted on a saved Agent
+    session_id: str | None = None            # persistent DB session; new one created if absent
+
+
+# ── Studio sessions (persisted text conversations) ───────────────────────────
+
+@app.get("/api/studio/sessions")
+async def studio_sessions_list(
+    _user: dict = Depends(require_user),
+) -> dict[str, Any]:
+    """List the current user's saved Studio chat sessions, newest first."""
+    sub = _user.get("sub", "")
+    rows = db.list_studio_sessions(owner_sub=sub, limit=50)
+    return {"sessions": rows}
+
+
+@app.get("/api/studio/sessions/{session_id}")
+async def studio_session_get(
+    session_id: str,
+    _user: dict = Depends(require_user),
+) -> dict[str, Any]:
+    sub = _user.get("sub", "")
+    row = db.get_studio_session(session_id, owner_sub=sub)
+    if not row:
+        raise HTTPException(404, "session not found")
+    return row
+
+
+@app.delete("/api/studio/sessions/{session_id}")
+async def studio_session_delete(
+    session_id: str,
+    _user: dict = Depends(require_user),
+) -> dict[str, bool]:
+    sub = _user.get("sub", "")
+    ok = db.delete_studio_session(session_id, owner_sub=sub)
+    if not ok:
+        raise HTTPException(404, "session not found")
+    return {"deleted": True}
 
 
 _OPENER_VARIANT_HINTS = {
@@ -948,7 +1019,27 @@ async def simulate_text(
     _user: dict = Depends(require_user),
 ) -> dict[str, Any]:
     """One text turn against the configured agent. Stateless — the client
-    sends back the full history each call. Returns ``{reply, language}``."""
+    sends back the full history each call. Returns ``{reply, language, session_id}``.
+
+    Persistence: if ``session_id`` is omitted we create a new row in
+    ``studio_sessions`` keyed to the JWT subject (admin or visitor) and
+    return its id. Each user message + agent reply is appended to
+    ``studio_messages`` so the user can resume a chat across refreshes /
+    devices.
+    """
+    sub = _user.get("sub", "")
+    user_text = (payload.message or "").strip()
+    # Create-or-resume the persisted session.
+    session_id = payload.session_id
+    if not session_id:
+        import json as _json
+        title = (user_text[:80] if user_text else "New chat")
+        session_id = db.create_studio_session(
+            owner_sub=sub,
+            agent_id=payload.agent_id,
+            persona_json=_json.dumps(payload.persona.model_dump(), ensure_ascii=False),
+            title=title,
+        )
     import httpx
     base_url = (os.getenv("OPENAI_BASE_URL", "") or "https://api.openai.com/v1").rstrip("/")
     model = os.getenv("OPENAI_LLM_MODEL", "gpt-4o-mini")
@@ -1019,15 +1110,25 @@ async def simulate_text(
     trial = _studio_text_trial(payload.trial_id, payload.persona, payload.agent_id)
     if trial:
         # Mirror the user message + agent reply onto the trial's transcript.
-        if payload.message and payload.message.strip():
-            trial.log_turn("user", payload.message.strip())
+        if user_text:
+            trial.log_turn("user", user_text)
         trial.log_turn("agent", reply)
+
+    # Persist to DB so the session can be resumed.
+    try:
+        if user_text:
+            db.append_studio_message(session_id, "lead", user_text)
+        db.append_studio_message(session_id, "agent", reply)
+        db.touch_studio_session(session_id)
+    except Exception as exc:
+        log.warning("studio session persist failed: %s", exc)
 
     return {
         "reply": reply,
         "language": payload.persona.language_pref,
         "model": model,
         "trial_id": payload.trial_id,
+        "session_id": session_id,
     }
 
 

@@ -13,7 +13,8 @@ PORT_UI     := 3000
 PORT_NGROK  := 4040
 PORT_MLFLOW := 5001
 UV          := uv run
-MLFLOW_URI  := file://$(CURDIR)/mlruns
+MLFLOW_URI  := sqlite:///$(CURDIR)/mlflow.db
+MLFLOW_ARTS := file://$(CURDIR)/mlartifacts
 
 # ANSI colours for the help banner
 BOLD := \033[1m
@@ -70,12 +71,12 @@ install:
 dev:
 	@echo "→ starting backend + ngrok + frontend + mlflow (Ctrl+C to stop all)"
 	@echo "  API     :$(PORT_API)    UI :$(PORT_UI)    ngrok :$(PORT_NGROK)    mlflow :$(PORT_MLFLOW)"
-	@mkdir -p mlruns
+	@mkdir -p mlartifacts
 	@trap 'echo; echo "stopping..."; kill 0' INT TERM; \
 	$(UV) api & \
 	(sleep 2 && ngrok http $(PORT_API) --log=stdout) & \
 	(sleep 2 && cd ui && npm run dev) & \
-	(sleep 2 && $(UV) mlflow ui --backend-store-uri "$(MLFLOW_URI)" --port $(PORT_MLFLOW)) & \
+	(sleep 2 && $(UV) mlflow ui --backend-store-uri "$(MLFLOW_URI)" --default-artifact-root "$(MLFLOW_ARTS)" --port $(PORT_MLFLOW)) & \
 	wait
 
 # ---------------------------------------------------------------------------
@@ -119,8 +120,8 @@ ngrok:
 
 mlflow:
 	@echo "→ MLflow UI on :$(PORT_MLFLOW)  →  http://localhost:$(PORT_MLFLOW)"
-	@mkdir -p mlruns
-	$(UV) mlflow ui --backend-store-uri "$(MLFLOW_URI)" --port $(PORT_MLFLOW)
+	@mkdir -p mlartifacts
+	$(UV) mlflow ui --backend-store-uri "$(MLFLOW_URI)" --default-artifact-root "$(MLFLOW_ARTS)" --port $(PORT_MLFLOW)
 
 # ---------------------------------------------------------------------------
 # Database / demo data

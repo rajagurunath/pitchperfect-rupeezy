@@ -60,10 +60,26 @@ def issue_token(profile: dict[str, str], ttl_seconds: int = 60 * 60 * 8) -> str:
     """Sign an HS256 JWT carrying the user profile. Default 8-hour expiry."""
     now = int(time.time())
     payload = {
-        "sub": profile["username"],
+        "sub": f"admin:{profile['username']}",
         "name": profile["display_name"],
         "email": profile["email"],
         "role": profile["role"],
+        "iat": now,
+        "exp": now + ttl_seconds,
+    }
+    return jwt.encode(payload, _secret(), algorithm="HS256")
+
+
+def issue_visitor_token(visitor: dict[str, Any],
+                        ttl_seconds: int = 60 * 60 * 24) -> str:
+    """Sign a JWT for a self-onboarded visitor (judge / mentor). Longer
+    expiry (24h) so they can come back across the demo day."""
+    now = int(time.time())
+    payload = {
+        "sub": f"visitor:{visitor['id']}",
+        "name": visitor.get("name") or visitor["email"],
+        "email": visitor["email"],
+        "role": (visitor.get("org_type") or "visitor").capitalize(),
         "iat": now,
         "exp": now + ttl_seconds,
     }

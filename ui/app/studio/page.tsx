@@ -709,6 +709,16 @@ function TextStage({
   // One MLflow run per chat session — the id is generated on first send and
   // reused for every subsequent turn; reset/unmount closes the run.
   const trialIdRef = useRef<string | null>(null);
+  // Persistent DB session id — set by the server on the first turn and
+  // reused on every subsequent send so the conversation accumulates in
+  // ``studio_messages``. Null = "new chat".
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<{
+    id: string;
+    title: string | null;
+    message_count: number;
+    updated_at: string;
+  }[]>([]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -723,6 +733,36 @@ function TextStage({
       }
     };
   }, []);
+
+  // Pull the user's saved sessions on mount + after every send.
+  async function refreshSessions() {
+    try {
+      const { sessions: rows } = await api.studioSessionsList();
+      setSessions(rows);
+    } catch { /* non-fatal */ }
+  }
+  useEffect(() => { refreshSessions(); }, []);
+
+  async function loadSession(id: string) {
+    try {
+      const s = await api.studioSessionGet(id);
+      setSessionId(s.id);
+      setHistory(s.messages.map((m) => ({ role: m.role, content: m.content })));
+      // Fresh MLflow trial for this resumed conversation (we don't carry
+      // the prior trial_id forward — that run is already closed).
+      trialIdRef.current = null;
+      setErr(null);
+    } catch (e: any) {
+      setErr(`could not load session: ${e.message}`);
+    }
+  }
+
+  async function deleteSession(id: string) {
+    if (!confirm("Delete this conversation?")) return;
+    await api.studioSessionDelete(id);
+    if (sessionId === id) reset();
+    refreshSessions();
+  }
 
   async function send(message?: string) {
     setBusy(true);
@@ -745,8 +785,13 @@ function TextStage({
         message: undefined,  // message already appended to history
         trial_id: trialIdRef.current,
         agent_id: agentId ?? undefined,
+        session_id: sessionId ?? undefined,
       });
       setHistory([...nextHistory, { role: "agent", content: res.reply }]);
+      if (res.session_id && res.session_id !== sessionId) {
+        setSessionId(res.session_id);
+      }
+      refreshSessions();  // pick up the new title / bumped updated_at
     } catch (e: any) {
       setErr(e.message);
     } finally {
@@ -757,6 +802,7 @@ function TextStage({
   function reset() {
     setHistory([]);
     setErr(null);
+    setSessionId(null);
     if (trialIdRef.current) {
       api.simulateTextEnd(trialIdRef.current);
       trialIdRef.current = null;
@@ -768,16 +814,47 @@ function TextStage({
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
       <Card className="min-h-[520px] flex flex-col">
-        <CardHeader className="flex items-center justify-between">
-          <div>
+        <CardHeader className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
             <CardTitle>Live conversation</CardTitle>
             <p className="text-xs text-ink-mute mt-0.5">
               You play the lead. Agent uses the configured persona + script.
             </p>
           </div>
-          <Button variant="secondary" onClick={reset} disabled={empty}>
-            Reset
-          </Button>
+          <div className="flex items-center gap-2">
+            {sessions.length > 0 && (
+              <select
+                value={sessionId ?? ""}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  if (id) loadSession(id);
+                  else reset();
+                }}
+                className="rounded-md bg-ink border border-ink-line px-2 py-1.5 text-xs max-w-[200px]"
+                title="Past conversations"
+              >
+                <option value="">+ New chat</option>
+                {sessions.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {(s.title || "Untitled").slice(0, 30)} · {s.message_count}
+                  </option>
+                ))}
+              </select>
+            )}
+            {sessionId && (
+              <Button
+                variant="ghost"
+                onClick={() => deleteSession(sessionId)}
+                title="Delete this conversation"
+                className="text-hot hover:text-hot"
+              >
+                Delete
+              </Button>
+            )}
+            <Button variant="secondary" onClick={reset} disabled={empty && !sessionId}>
+              New chat
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="flex-1 flex flex-col">
           <div className="flex-1 overflow-y-auto pr-2 space-y-3 min-h-[320px] max-h-[60vh]">

@@ -37,10 +37,23 @@ _AGENT_EXPERIMENT = "agent-prompts"
 _STUDIO_EXPERIMENT = "studio-trials"
 
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 def _tracking_uri() -> str:
+    # SQLite backend (required by MLflow 3.12+ for Traces/Datasets UI tabs).
+    # FileStore still works for basic Runs but spams 500s on the new tabs.
     return os.getenv(
         "MLFLOW_TRACKING_URI",
-        "file://" + str(Path(__file__).resolve().parents[2] / "mlruns"),
+        "sqlite:///" + str(_REPO_ROOT / "mlflow.db"),
+    )
+
+
+def _artifact_root() -> str:
+    # Anchored to repo root so artifacts land in one place regardless of CWD.
+    return os.getenv(
+        "MLFLOW_ARTIFACT_ROOT",
+        "file://" + str(_REPO_ROOT / "mlartifacts"),
     )
 
 
@@ -57,6 +70,19 @@ def _configure() -> Any | None:
         return None
 
 
+def _ensure_experiment(mlflow: Any, name: str) -> str:
+    """set_experiment but with an explicit absolute artifact_location, so
+    artifacts land in the repo-anchored mlartifacts/ dir even when the
+    server's CWD differs from repo root."""
+    exp = mlflow.get_experiment_by_name(name)
+    if exp is None:
+        exp_id = mlflow.create_experiment(name, artifact_location=_artifact_root() + "/" + name)
+    else:
+        exp_id = exp.experiment_id
+    mlflow.set_experiment(experiment_id=exp_id)
+    return exp_id
+
+
 # ── 1. Agent versions ────────────────────────────────────────────────────────
 
 def log_agent_version(agent_row: dict[str, Any], change: str) -> str | None:
@@ -66,7 +92,7 @@ def log_agent_version(agent_row: dict[str, Any], change: str) -> str | None:
     if not mlflow:
         return None
     try:
-        mlflow.set_experiment(_AGENT_EXPERIMENT)
+        _ensure_experiment(mlflow, _AGENT_EXPERIMENT)
         run_name = f"{agent_row['name']}-v{agent_row['version']}"
         with mlflow.start_run(run_name=run_name) as r:
             mlflow.log_params({
@@ -185,16 +211,24 @@ def log_runtime_prompt(
     try:
         from .mlflow_tracker import get_tracker
         tracker = get_tracker(call_id)
-        if not tracker or tracker._run is None:  # noqa: SLF001
+        active_run_id = (tracker._run.info.run_id  # noqa: SLF001
+                         if tracker and tracker._run else None)
+        # Tracker may not be in-memory (separate request); fall back to DB.
+        if not active_run_id:
+            try:
+                from . import db as _db
+                active_run_id = (_db.get_call(call_id) or {}).get("mlflow_run_id")
+            except Exception:
+                active_run_id = None
+        if not active_run_id:
             # CallTracker hasn't started yet — write a standalone run instead
             # so the prompt is at least captured somewhere.
-            mlflow.set_experiment("voice-agent-calls")
+            _ensure_experiment(mlflow, "voice-agent-calls")
             with mlflow.start_run(run_name=f"prompt-{call_id[:8]}"):
                 _log_prompt_artifact(mlflow, system_prompt, agent_id,
                                      agent_name, lead_name, language, voice)
             return
-        # Active call run — append the prompt artifact in-place.
-        active_run_id = tracker._run.info.run_id  # noqa: SLF001
+        # Append the prompt artifact into the call's run.
         with mlflow.start_run(run_id=active_run_id):
             _log_prompt_artifact(mlflow, system_prompt, agent_id,
                                  agent_name, lead_name, language, voice)
@@ -246,10 +280,20 @@ def log_analyzer_io(
         tracker = get_tracker(call_id)
         run_id = (tracker._run.info.run_id  # noqa: SLF001
                   if tracker and tracker._run else None)
+        # Tracker may have already been ended (analyzer can run from a
+        # separate request, e.g. /api/calls/{id}/analyze). Fall back to
+        # the run_id we persisted on the calls row at start() time.
+        if not run_id:
+            try:
+                from . import db as _db
+                row = _db.get_call(call_id) or {}
+                run_id = row.get("mlflow_run_id") or None
+            except Exception:
+                run_id = None
         if run_id:
             ctx = mlflow.start_run(run_id=run_id)
         else:
-            mlflow.set_experiment("voice-agent-calls")
+            _ensure_experiment(mlflow, "voice-agent-calls")
             ctx = mlflow.start_run(run_name=f"analyzer-{call_id[:8]}")
         with ctx:
             with tempfile.TemporaryDirectory() as tmp:
@@ -305,7 +349,7 @@ class StudioTrial:
         if not mlflow:
             return t
         try:
-            mlflow.set_experiment(_STUDIO_EXPERIMENT)
+            _ensure_experiment(mlflow, _STUDIO_EXPERIMENT)
             t._run = mlflow.start_run(run_name=f"{mode}-{t.trial_id}")
             t._mlflow = mlflow
             mlflow.log_params({
