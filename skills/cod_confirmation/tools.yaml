@@ -1,0 +1,40 @@
+- id: lookup_order
+  required_params:
+    one_of:
+      - [shopify_store_url, shopify_api_key]
+      - [woocommerce_url, woocommerce_consumer_key, woocommerce_consumer_secret]
+      - [custom_webhook_url, custom_webhook_secret]
+  description: >
+    Read the order context (items, amount, shipping address, status) by
+    order ID from the connected commerce platform.
+- id: confirm_order
+  required_params:
+    one_of:
+      - [shopify_store_url, shopify_api_key]
+      - [woocommerce_url, woocommerce_consumer_key, woocommerce_consumer_secret]
+      - [custom_webhook_url, custom_webhook_secret]
+  description: >
+    Mark the order as confirmed-for-shipping in the connected platform.
+- id: cancel_order
+  required_params:
+    one_of:
+      - [shopify_store_url, shopify_api_key]
+      - [woocommerce_url, woocommerce_consumer_key, woocommerce_consumer_secret]
+      - [custom_webhook_url, custom_webhook_secret]
+  description: >
+    Cancel the order in the connected platform; trigger refund flow if
+    any prepaid portion exists.
+- id: send_payment_link
+  required_params:
+    - razorpay_key_id
+    - razorpay_key_secret
+  description: >
+    Generate a Razorpay payment link for the order amount (with 5%
+    prepaid discount applied) and send via WhatsApp.
+- id: send_whatsapp_followup
+  required_params:
+    - whatsapp_from_number
+    - whatsapp_template_id
+  description: >
+    Send the templated tracking-link / cancellation-confirmation message
+    on WhatsApp.

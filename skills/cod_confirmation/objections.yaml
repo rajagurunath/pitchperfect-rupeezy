@@ -1,0 +1,40 @@
+- label: not_now_busy
+  trigger_phrases:
+    - "busy"
+    - "call later"
+    - "not free"
+  rebuttal: >
+    Bilkul, sirf 30 seconds — sirf yeh confirm karna tha ki order
+    abhi bhi chahiye. Haan ya na — bas itna.
+- label: forgot_what_ordered
+  trigger_phrases:
+    - "forgot"
+    - "what is this"
+    - "I don't remember"
+  rebuttal: >
+    No worries! Aapne {order_summary} order kiya tha, ₹{order_amount}
+    COD. Yaad aaya? Abhi bhi chahiye?
+- label: too_expensive_doubt
+  trigger_phrases:
+    - "expensive"
+    - "costly"
+    - "second thoughts"
+    - "thinking"
+  rebuttal: >
+    Samajh sakti hoon. Aapko bata doon — agar abhi prepaid switch karein
+    to 5% extra discount mil jaata hai. Bhejoon WhatsApp pe payment link?
+- label: address_change
+  trigger_phrases:
+    - "change address"
+    - "different address"
+    - "wrong address"
+  rebuttal: >
+    Bilkul, address change kar sakti hoon abhi. Naya address bataiye?
+- label: cancel
+  trigger_phrases:
+    - "cancel"
+    - "don't want"
+    - "no longer want"
+  rebuttal: >
+    Theek hai, abhi cancel kar deti hoon. Koi specific reason — sirf
+    feedback ke liye?

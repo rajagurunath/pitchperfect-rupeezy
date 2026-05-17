@@ -1,0 +1,20 @@
+id: cod_confirmation
+name: COD Order Confirmation
+category: ecommerce_d2c
+description: >
+  Calls a customer right after a COD order is placed. Confirms intent
+  before shipping. Reduces Return-To-Origin (RTO) losses by 30–50%.
+  Offers a prepaid switch (with discount) when the customer is on the
+  fence.
+default_language: hinglish
+default_voice_provider: sarvam
+default_voice_id: sarvam_meera
+estimated_call_duration_seconds: 75
+tools:
+  - lookup_order
+  - confirm_order
+  - cancel_order
+  - send_payment_link
+  - send_whatsapp_followup
+rubric_labels: [confirmed, cancelled, callback_requested, no_answer, switched_to_prepaid]
+compliance_tags: [dpdp_consent_required, trai_calling_hours]

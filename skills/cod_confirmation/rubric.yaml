@@ -1,0 +1,35 @@
+description: >
+  an expert e-commerce analyst reviewing a COD confirmation call between
+  {brand}'s AI agent and a customer who just placed a Cash-on-Delivery
+  order. RTO (Return-To-Origin) reduction is the goal.
+
+labels:
+  confirmed:
+    criteria: >
+      Customer confirmed they want the order. Address verified. Ready
+      for shipping.
+    action: Release order to fulfilment.
+  switched_to_prepaid:
+    criteria: >
+      Customer agreed to pay upfront. Payment link sent via WhatsApp.
+    action: Hold shipping until payment received; apply 5% prepaid
+      discount.
+  cancelled:
+    criteria: >
+      Customer asked to cancel. Reason logged for analytics.
+    action: Cancel order in OMS; trigger refund flow if any prepaid
+      portion exists.
+  callback_requested:
+    criteria: >
+      Customer asked to be called back. Order on hold.
+    action: Queue callback; hold shipping until customer reached.
+  no_answer:
+    criteria: >
+      No conversation captured. Voicemail or hung up immediately.
+    action: Retry up to 2 more times across different hours; if still no
+      answer, default-confirm and ship.
+
+signals:
+  confidence_in_intent: "1 = clearly going to refuse delivery, 10 = certain to accept."
+  rto_risk_score: "0 = will accept, 10 = will refuse."
+  customer_sentiment: "1 = hostile, 10 = delighted."
