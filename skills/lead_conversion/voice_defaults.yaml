@@ -1,0 +1,6 @@
+provider: sarvam
+language: hinglish
+voice_id: sarvam_meera
+speech_rate: 1.0
+agent_name: Priya
+agent_pronouns: she/her

@@ -1,0 +1,52 @@
+# Pulled from the original 5-objection set in the Rupeezy build,
+# generalized so the rebuttal references {brand} and {offer_*} placeholders
+# that the tenant fills in at install time.
+- label: already_with_competitor
+  trigger_phrases:
+    - "already with another"
+    - "another broker"
+    - "another provider"
+    - "already using"
+  rebuttal: >
+    Great — you already understand the business. Quick question — are you
+    getting the same benefits {brand} offers? Most providers cap at lower
+    rates. Worth a 2-minute comparison?
+- label: insufficient_network
+  trigger_phrases:
+    - "don't have enough"
+    - "no clients"
+    - "no contacts"
+    - "small network"
+  rebuttal: >
+    No problem. Many of our top customers started with 5–10 contacts.
+    We give you marketing material and a referral link, and you earn
+    from every active client. The network compounds.
+- label: support_concerns
+  trigger_phrases:
+    - "what if my clients face issues"
+    - "who handles support"
+    - "what about problems"
+  rebuttal: >
+    {brand} has a dedicated support desk — Hindi and English, 7 days a
+    week. You're never alone with a client problem. We share the support
+    number and your dedicated contact on day one.
+- label: trust_doubt
+  trigger_phrases:
+    - "is {brand} trustworthy"
+    - "is it safe"
+    - "scam"
+    - "fraud"
+  rebuttal: >
+    {brand} is registered with the relevant regulator and powers
+    {trust_volume_phrase}. I can send the registration certificate on
+    WhatsApp right after this call if you'd like.
+- label: defer
+  trigger_phrases:
+    - "think about it"
+    - "call me later"
+    - "not now"
+    - "busy"
+  rebuttal: >
+    Of course. Just so I send the right thing — should I drop the
+    program details on WhatsApp now, plus a sign-up link you can use
+    whenever you're ready? It takes 2 minutes when you decide.

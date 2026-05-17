@@ -1,0 +1,18 @@
+id: lead_conversion
+name: Lead Conversion
+category: sales
+description: >
+  Calls fresh inbound leads instantly, qualifies them in their language,
+  handles common objections, and scores HOT / WARM / COLD for human RM
+  follow-up. Generalizes from the Rupeezy AP partner-program build.
+default_language: hinglish
+default_voice_provider: sarvam
+default_voice_id: sarvam_meera
+estimated_call_duration_seconds: 120
+tools:
+  - lookup_lead
+  - schedule_callback
+  - send_whatsapp_followup
+  - hand_off_to_human
+rubric_labels: [HOT, WARM, COLD]
+compliance_tags: [dpdp_consent_required, trai_calling_hours]

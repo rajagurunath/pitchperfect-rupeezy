@@ -1,0 +1,23 @@
+- id: lookup_lead
+  required_params: []
+  description: >
+    Read lead context (notes, prior interactions) from the platform's
+    leads table. No external integration required.
+- id: schedule_callback
+  required_params: []
+  description: >
+    Mark the lead for human-RM callback in N minutes. Internal queue;
+    no external integration.
+- id: send_whatsapp_followup
+  required_params:
+    - whatsapp_from_number
+    - whatsapp_template_id
+  description: >
+    Send a templated WhatsApp message to the lead via the org's Twilio
+    WhatsApp sender. Templates must be pre-approved by Meta.
+- id: hand_off_to_human
+  required_params:
+    - rm_phone_number
+  description: >
+    Page the on-shift human RM via SMS / WhatsApp with the lead context
+    card. Used for HOT score auto-escalation.

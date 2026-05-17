@@ -1,0 +1,30 @@
+# Post-call qualification rubric. Used by the analyzer to produce a
+# structured score + summary the human RM acts on.
+description: >
+  an expert sales analyst reviewing a phone call between {brand}'s AI
+  relationship manager and a prospective {program_name} customer.
+
+labels:
+  HOT:
+    criteria: >
+      Explicit interest; asked about pricing / sign-up / onboarding
+      timeline; has existing context (existing client base, prior research,
+      etc.); said "kab start kar sakte hain", "send the link", "ready hu".
+    action: Human RM callback within 30 minutes.
+  WARM:
+    criteria: >
+      Engaged but non-committal; asked general questions; "send details" /
+      "let me think".
+    action: Eligible for WhatsApp follow-up.
+  COLD:
+    criteria: >
+      Dismissive, wrong number, "do not call", or simply not interested.
+    action: Do not contact again unless lead re-opts in.
+
+signals:
+  interest_level: "1 = completely disinterested, 10 = ready to sign up now."
+  objection_intensity: "1 = no objections, 10 = hostile / multiple hard objections."
+  follow_up_priority: "1 = no follow-up needed (COLD), 10 = call back within 30 min (HOT)."
+  buying_signals: >
+    Actual phrases or behaviours that indicate purchase intent. Empty list
+    if COLD.
