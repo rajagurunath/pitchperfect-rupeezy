@@ -1,0 +1,23 @@
+- id: book_meeting
+  required_params:
+    - calendar_provider           # 'google' | 'cal_com' | 'webhook'
+    - calendar_endpoint
+    - calendar_token
+  description: >
+    Block a 20-minute slot on the {brand} team's shared calendar at a
+    time the prospect agreed to.
+- id: send_calendar_invite
+  required_params:
+    - whatsapp_from_number
+  description: >
+    Send the meeting link + calendar invite to the prospect on WhatsApp.
+- id: dnc_check
+  required_params: []
+  description: >
+    Add the prospect's number to the org's permanent DNC list. Internal.
+- id: send_whatsapp_followup
+  required_params:
+    - whatsapp_from_number
+    - whatsapp_template_id
+  description: >
+    Send the templated 1-pager + CTA on WhatsApp.

@@ -1,0 +1,6 @@
+provider: sarvam
+language: hinglish
+voice_id: sarvam_meera
+speech_rate: 1.05
+agent_name: Aarav
+agent_pronouns: he/him

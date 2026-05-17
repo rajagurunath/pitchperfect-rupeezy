@@ -1,0 +1,35 @@
+- label: send_email_instead
+  trigger_phrases:
+    - "send me an email"
+    - "send info"
+    - "email"
+  rebuttal: >
+    Happy to — I'll send a one-pager on WhatsApp right after this. But
+    20 seconds: does {fit_hypothesis_short} actually match your current
+    situation? If yes, a quick call makes the email 10× more useful.
+- label: not_decision_maker
+  trigger_phrases:
+    - "not me"
+    - "wrong person"
+    - "my boss"
+    - "talk to my"
+  rebuttal: >
+    Got it. Who in your team handles {decision_topic}? And would it be
+    okay if I reached out to them directly with your name as the intro?
+- label: already_using_competitor
+  trigger_phrases:
+    - "already using"
+    - "we have a"
+    - "already with"
+  rebuttal: >
+    Makes sense — most teams we talk to already have something. The 20
+    minutes is just to compare apples-to-apples on {differentiator}.
+    Worth it?
+- label: too_busy
+  trigger_phrases:
+    - "very busy"
+    - "no time"
+    - "call later"
+  rebuttal: >
+    Of course — when's a 20-minute window that works? I'll call back
+    exactly then, no agenda confusion.

@@ -1,0 +1,30 @@
+description: >
+  an expert SDR analyst reviewing a cold outbound call between {brand}'s
+  AI dialer and a cold prospect.
+
+labels:
+  meeting_booked:
+    criteria: >
+      Prospect agreed to a specific meeting time. AI confirmed via the
+      book_meeting tool.
+    action: Add to CRM with meeting date; pre-send calendar invite if
+      not already done.
+  callback_requested:
+    criteria: >
+      Prospect said now wasn't a good time and offered (or accepted) a
+      specific callback window.
+    action: Queue for callback at the stated time.
+  not_interested:
+    criteria: >
+      Polite no. Said they weren't a fit, weren't interested, were happy
+      with current solution.
+    action: Do not re-dial within 90 days.
+  dnc:
+    criteria: >
+      Asked to be removed, "do not call", angry, hostile.
+    action: Add to permanent DNC list; never re-dial.
+
+signals:
+  icp_fit_score: "0 = no ICP signals confirmed, 4 = all four ICP signals confirmed."
+  conversation_quality: "1 = hostile, 10 = engaged + curious."
+  follow_up_priority: "1 = no follow-up, 10 = high-priority meeting booked."

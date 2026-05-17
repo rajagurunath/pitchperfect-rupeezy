@@ -1,0 +1,18 @@
+id: cold_outbound
+name: Cold Outbound — Appointment Setting
+category: sales
+description: >
+  Dials a cold list, qualifies fit in under 90 seconds, books meetings
+  for accounts that match the ideal-customer-profile, drops the rest
+  politely. Logs DNC requests automatically.
+default_language: hinglish
+default_voice_provider: sarvam
+default_voice_id: sarvam_meera
+estimated_call_duration_seconds: 90
+tools:
+  - book_meeting
+  - send_calendar_invite
+  - dnc_check
+  - send_whatsapp_followup
+rubric_labels: [meeting_booked, callback_requested, not_interested, dnc]
+compliance_tags: [dpdp_consent_required, trai_calling_hours, dnc_registry]
