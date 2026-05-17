@@ -1,0 +1,34 @@
+description: >
+  an expert clinic operations analyst reviewing an appointment booking
+  call between {brand}'s AI front-desk and a patient.
+
+labels:
+  booked:
+    criteria: >
+      A new appointment was successfully booked. Doctor + slot + patient
+      details confirmed.
+    action: Send appointment confirmation on WhatsApp; queue reminder
+      24h before.
+  rescheduled:
+    criteria: >
+      Existing appointment moved to a new slot.
+    action: Update calendar; send new confirmation; cancel old reminder.
+  cancelled:
+    criteria: >
+      Existing appointment cancelled, no replacement requested.
+    action: Free the slot; update OPD list.
+  callback_requested:
+    criteria: >
+      Patient needs clinic-team / doctor follow-up that the AI agent
+      cannot resolve (medical question, billing dispute, lab-report
+      question).
+    action: Queue human callback within stated window.
+  no_answer:
+    criteria: >
+      No conversation captured.
+    action: Retry once after 2 hours during clinic hours.
+
+signals:
+  patient_sentiment: "1 = frustrated, 10 = happy."
+  urgency_score: "1 = routine, 10 = urgent medical concern flagged."
+  data_completeness: "1 = no patient details captured, 10 = full record."

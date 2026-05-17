@@ -1,0 +1,6 @@
+provider: sarvam
+language: hinglish
+voice_id: sarvam_meera
+speech_rate: 0.95
+agent_name: Riya
+agent_pronouns: she/her

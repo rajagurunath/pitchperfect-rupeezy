@@ -1,0 +1,18 @@
+id: clinic_appointment
+name: Clinic Appointment Booking
+category: healthcare
+description: >
+  Inbound + outbound clinic booking. Inbound — handles new appointment
+  requests, reschedules, cancellations. Outbound — confirms upcoming
+  appointments, calls back no-shows, sends reminders.
+default_language: hinglish
+default_voice_provider: sarvam
+default_voice_id: sarvam_meera
+estimated_call_duration_seconds: 90
+tools:
+  - check_doctor_calendar
+  - book_slot
+  - send_reminder
+  - cancel_slot
+rubric_labels: [booked, rescheduled, cancelled, callback_requested, no_answer]
+compliance_tags: [dpdp_consent_required, trai_calling_hours, healthcare_phi]

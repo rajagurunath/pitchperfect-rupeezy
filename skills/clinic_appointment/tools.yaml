@@ -1,0 +1,27 @@
+- id: check_doctor_calendar
+  required_params:
+    - calendar_provider           # 'google' | 'practo' | 'webhook'
+    - calendar_endpoint
+    - calendar_token
+  description: >
+    Read the doctor's available slots for a date range.
+- id: book_slot
+  required_params:
+    - calendar_provider
+    - calendar_endpoint
+    - calendar_token
+  description: >
+    Book a specific slot for the patient. Returns the booking ID.
+- id: cancel_slot
+  required_params:
+    - calendar_provider
+    - calendar_endpoint
+    - calendar_token
+  description: >
+    Cancel an existing slot. Frees it for re-booking.
+- id: send_reminder
+  required_params:
+    - whatsapp_from_number
+    - whatsapp_template_id
+  description: >
+    Send the appointment confirmation + location + reminder via WhatsApp.

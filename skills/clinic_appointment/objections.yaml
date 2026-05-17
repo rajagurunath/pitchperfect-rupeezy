@@ -1,0 +1,37 @@
+- label: ask_diagnosis
+  trigger_phrases:
+    - "what is wrong with me"
+    - "diagnosis"
+    - "what should I do"
+    - "medical advice"
+  rebuttal: >
+    Doctor sahab consultation pe yeh sab properly bata sakte hain.
+    Main aapko jaldi se ek appointment book kar deti hoon — kab
+    convenient hai?
+- label: ask_price
+  trigger_phrases:
+    - "kitna lagega"
+    - "how much"
+    - "cost"
+    - "price"
+  rebuttal: >
+    Consultation ka exact charge front desk pe milega. Kya aap pehli
+    baar aa rahe hain ya regular patient hain?
+- label: prefer_specific_doctor
+  trigger_phrases:
+    - "Dr. ___ chahiye"
+    - "only Dr."
+    - "I want Dr."
+  rebuttal: >
+    Bilkul, main Dr. {{doctor_name}} ka calendar check karti hoon abhi.
+    Kya date aur time aapke liye sahi rahega?
+- label: emergency_concern
+  trigger_phrases:
+    - "emergency"
+    - "tej dard"
+    - "severe"
+    - "urgent"
+  rebuttal: >
+    Yeh urgent lag raha hai. Main abhi clinic ke senior staff ko
+    connect karti hoon — please hold on. Agar yeh life-threatening
+    emergency hai, please 112 call kariye ya nearest hospital jaiye.
