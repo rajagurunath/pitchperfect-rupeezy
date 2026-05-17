@@ -21,15 +21,45 @@ from . import db
 log = logging.getLogger("voice-agents.analyzer")
 
 
-_ANALYZER_PROMPT = """\
-You are an expert sales analyst reviewing a phone call between {brand}'s AI
-relationship manager and a prospective Authorized Person (AP) partner lead.
+def build_analyzer_prompt(
+    *,
+    brand: str,
+    skill_id: str = "lead_conversion",
+    program_name: str | None = None,
+) -> str:
+    """Render the post-call analyzer system prompt.
+
+    Pulls the rubric (labels + criteria + signals) from
+    ``skills/<skill_id>/rubric.yaml``. The JSON output schema is fixed
+    across skills; only the label set and the rubric description vary.
+    """
+    from . import skills as _skills
+    s = _skills.load_stock_skill(skill_id)
+    rubric_desc = (s.rubric.get("description") or "").format(
+        brand=brand,
+        program_name=program_name or "the product",
+    )
+    label_lines = []
+    for label in s.rubric_labels:
+        info = s.rubric["labels"].get(label) or {}
+        crit = (info.get("criteria") or "").strip().replace("\n", " ")
+        action = (info.get("action") or "").strip()
+        label_lines.append(f"{label} — {crit} Action: {action}")
+    rubric_block = "\n".join(label_lines)
+    signal_lines = []
+    for sig, desc in (s.rubric.get("signals") or {}).items():
+        signal_lines.append(f"{sig}: {str(desc).strip()}")
+    signals_block = "\n".join(signal_lines)
+    label_union = " | ".join(f'"{label}"' for label in s.rubric_labels)
+
+    return f"""\
+You are {rubric_desc.strip()}
 
 Output ONLY valid JSON matching this schema (no prose, no markdown fences):
 
 {{
-  "score": "HOT" | "WARM" | "COLD",
-  "summary": "<3–5 sentence summary: lead profile, what they asked, objections raised, where conversation landed, concrete next step>",
+  "score": {label_union},
+  "summary": "<3–5 sentence summary: customer profile, what they asked, objections raised, where conversation landed, concrete next step>",
   "sentiment": "positive" | "neutral" | "negative",
   "interest_level": <integer 1–10>,
   "objection_intensity": <integer 1–10>,
@@ -37,36 +67,34 @@ Output ONLY valid JSON matching this schema (no prose, no markdown fences):
   "buying_signals": ["<exact quote or paraphrase>", ...],
   "objections_raised": ["<short label>", ...],
   "objections_handled": [
-    {{"objection": "<short label>", "resolution": "<one phrase: how the agent resolved it on the call>"}}
+    {{"objection": "<short label>", "resolution": "<one phrase>"}}
   ],
-  "key_signal": "<one short sentence — the single strongest moment the human RM should know about>",
-  "recommended_opener": "<one line, in the lead's language, that the human RM can say to re-open the conversation, referencing what the AI agent already discussed>",
-  "next_action": "<one concrete sentence for the human RM>"
+  "key_signal": "<one short sentence — single strongest moment the human should know>",
+  "recommended_opener": "<one line, in the customer's language, that the human can use to re-open>",
+  "next_action": "<one concrete sentence for the human>"
 }}
 
 Scoring rubric:
-HOT  — explicit interest; asked about commission / sign-up / onboarding timeline;
-       has existing client base; said "kab start kar sakte hain", "send the link",
-       "ready hu". Human RM callback within 30 minutes.
-WARM — engaged but non-committal; asked general questions; "send details" / "let
-       me think". Eligible for WhatsApp follow-up.
-COLD — dismissive, wrong number, "do not call", or simply not interested.
+{rubric_block}
 
-interest_level: 1 = completely disinterested, 10 = ready to sign up now.
-objection_intensity: 1 = no objections, 10 = hostile / multiple hard objections.
-follow_up_priority: 1 = no follow-up needed (COLD), 10 = call back within 30 min (HOT).
-buying_signals: actual phrases or behaviours that indicate purchase intent. Empty list if COLD.
+Signal definitions:
+{signals_block}
 """
 
 
-def _build_messages(brand: str, transcript: list[dict[str, Any]]) -> list[dict[str, str]]:
+def _build_messages(
+    brand: str,
+    transcript: list[dict[str, Any]],
+    skill_id: str = "lead_conversion",
+) -> list[dict[str, str]]:
     convo_lines = []
     for t in transcript:
         speaker = "AGENT" if t["speaker"] == "agent" else "LEAD"
         convo_lines.append(f"{speaker}: {t['text']}")
     convo = "\n".join(convo_lines) or "(no transcript captured)"
     return [
-        {"role": "system", "content": _ANALYZER_PROMPT.format(brand=brand)},
+        {"role": "system",
+         "content": build_analyzer_prompt(brand=brand, skill_id=skill_id)},
         {"role": "user",
          "content": f"Transcript:\n\n{convo}\n\nReturn ONLY the JSON object."},
     ]
@@ -201,7 +229,7 @@ async def analyze_call(call_id: str) -> dict[str, Any] | None:
         from .mlflow_prompts import log_analyzer_io
         log_analyzer_io(
             call_id=call_id,
-            analyzer_prompt=_ANALYZER_PROMPT.format(brand=brand),
+            analyzer_prompt=build_analyzer_prompt(brand=brand),
             transcript=transcript,
             raw_response=raw,
             parsed=parsed,
