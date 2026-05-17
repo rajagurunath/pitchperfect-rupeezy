@@ -78,9 +78,9 @@ const LANGUAGES = [
 
 
 const OPENERS = [
-  { value: "benefits", label: "Lead with benefits (100% brokerage + daily payout)" },
-  { value: "social_proof", label: "Social proof (1000+ APs already onboarded)" },
-  { value: "question", label: "Curiosity question (current brokerage rate?)" },
+  { value: "benefits", label: "Lead with benefits" },
+  { value: "social_proof", label: "Lead with social proof" },
+  { value: "question", label: "Open with a discovery question" },
 ];
 
 const TONE_VOICES: { gender: "F" | "M"; tone: string; voice: string }[] = [
@@ -603,7 +603,7 @@ function PersonaSidebar({
               rows={3}
               value={persona.custom_opener ?? ""}
               onChange={(e) => set("custom_opener", e.target.value)}
-              placeholder="Namaste { name }, main Priya bol rahi hoon Rupeezy se…"
+              placeholder="Namaste { name }, main { agent_name } bol rahi hoon { brand } se…"
             />
           </Field>
         </Section>

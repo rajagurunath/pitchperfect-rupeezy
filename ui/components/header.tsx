@@ -22,7 +22,7 @@ export function Header({ variant = "app" }: { variant?: "app" | "landing" }) {
         </div>
         <div>
           <div className="text-sm font-semibold tracking-tight">PitchPerfect</div>
-          <div className="text-[11px] text-ink-mute">Admin console · Rupeezy</div>
+          <div className="text-[11px] text-ink-mute">Voice agents for Indian SMBs</div>
         </div>
       </Link>
 

@@ -75,7 +75,7 @@ export function Sidebar() {
           </div>
           <div className="overflow-hidden">
             <div className="text-sm font-semibold tracking-tight whitespace-nowrap">PitchPerfect</div>
-            <div className="text-[10px] text-ink-mute whitespace-nowrap">Admin console · Rupeezy</div>
+            <div className="text-[10px] text-ink-mute whitespace-nowrap">Voice agents for Indian SMBs</div>
           </div>
         </Link>
 

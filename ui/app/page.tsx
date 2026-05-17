@@ -1,10 +1,10 @@
 "use client";
 
-// Public marketing site for PitchPerfect — voice AI for partner-program
-// outreach. Editorial dark + electric-teal aesthetic; product-led copy that
-// leads with outcomes (conversion lift, language reach, RM productivity)
-// rather than implementation details. Rupeezy is featured as the launch
-// customer in the trust strip, dial card, and conversation transcript.
+// Public marketing site for PitchPerfect — self-serve voice agents for
+// Indian SMBs with a catalog of vertical skills. Editorial dark + saffron
+// amber aesthetic; product-led copy that leads with outcomes (conversion
+// lift, language reach, operator productivity) rather than implementation
+// details.
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -262,8 +262,8 @@ function DialCard({ greeting }: { greeting: typeof GREETINGS[number] }) {
             <Headphones size={20} className="text-accent" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold truncate">Rupeezy AP Agent</div>
-            <div className="text-xs text-ink-mute truncate">Calling partner — auto-dialed</div>
+            <div className="text-sm font-semibold truncate">Lead Conversion Agent</div>
+            <div className="text-xs text-ink-mute truncate">Calling lead — auto-dialed</div>
           </div>
           <div className="text-xs text-ink-mute font-mono tabular-nums">00:14</div>
         </div>
@@ -348,12 +348,12 @@ function TrustStrip() {
                 <span className="absolute inline-flex h-full w-full rounded-full bg-accent opacity-50 animate-ping-soft" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-accent" />
               </span>
-              <span className="text-[10px] tracking-[0.22em] text-accent font-semibold">LIVE WITH</span>
+              <span className="text-[10px] tracking-[0.22em] text-accent font-semibold">PRIVATE BETA</span>
             </div>
-            <div className="font-serif text-2xl text-ink-text font-medium">Rupeezy</div>
+            <div className="font-serif text-2xl text-ink-text font-medium">Indian SMBs</div>
             <div className="hidden sm:block h-5 w-px bg-ink-line" />
             <div className="hidden sm:block text-xs text-ink-mute">
-              powering AP partner outreach in 9 Indian languages
+              dialing leads in 9 Indian languages
             </div>
           </div>
         </div>
@@ -545,9 +545,9 @@ function HowItWorks() {
 
 function ConversationPreview() {
   const lines: { who: "agent" | "user"; lang: string; text: string; gloss?: string }[] = [
-    { who: "agent", lang: "Hindi",   text: "नमस्ते, मैं Rupeezy की प्रिया बोल रही हूँ। क्या मैं आपसे एक मिनट बात कर सकती हूँ?", gloss: "Hello, this is Priya from Rupeezy. May I take a minute of your time?" },
+    { who: "agent", lang: "Hindi",   text: "नमस्ते, मैं Acme की प्रिया बोल रही हूँ। क्या मैं आपसे एक मिनट बात कर सकती हूँ?", gloss: "Hello, this is Priya from Acme. May I take a minute of your time?" },
     { who: "user",  lang: "Hindi",   text: "हाँ बोलिए, क्या बात है?", gloss: "Yes, go ahead — what is it?" },
-    { who: "agent", lang: "Hinglish", text: "AP partner program ke baare mein call kar rahi hoon. Aap apne current broker ke saath kitne saal se hain?", gloss: "I'm calling about the AP partner program. How long have you been with your current broker?" },
+    { who: "agent", lang: "Hinglish", text: "Channel partner program ke baare mein call kar rahi hoon. Aap apne current provider ke saath kitne saal se hain?", gloss: "I'm calling about the channel partner program. How long have you been with your current provider?" },
     { who: "user",  lang: "Hindi",    text: "अभी तीन साल हो गए। आपकी कमीशन कैसी है?", gloss: "Three years now. How is your commission?" },
     { who: "agent", lang: "Hinglish", text: "Industry-best 50–60% lifetime payout, plus 6 lakh ka monthly cap nahi hai. Main details WhatsApp pe bhej dungi?", gloss: "Industry-best 50–60% lifetime payout, no monthly cap. Shall I send the details on WhatsApp?" },
   ];

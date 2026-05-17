@@ -1,12 +1,14 @@
-# PitchPerfect — Voice AI for partner programs
+# PitchPerfect
 
-Multilingual voice agent that auto-dials inbound partner-program leads in
-seconds, runs the qualification pitch in any of nine Indian languages,
-handles the core objections, and hands every call back to the human RM
-team scored **HOT / WARM / COLD** with a one-paragraph summary.
+> Self-serve voice-agent platform for Indian startups, with a catalog of
+> vertical skills (lead conversion, cold outbound, COD confirmation,
+> clinic appointment booking). Open-core runtime built on Pipecat +
+> Twilio. Hinglish-native. INR-priced.
 
-> Built for **Theme 7** (Rupeezy AP partner program) and currently powering
-> Rupeezy's AP outreach in production.
+Multilingual voice agent that auto-dials leads in seconds, runs the
+right pitch for the picked skill in any of nine Indian languages,
+handles common objections, and hands every call back scored with a
+one-paragraph summary.
 
 ## 60-second explainer
 
