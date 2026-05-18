@@ -28,9 +28,9 @@ const jetMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PitchPerfect — Voice AI for partner programs, in 9 Indian languages",
+  title: "PitchPerfect — Voice agents for Indian SMBs",
   description:
-    "PitchPerfect builds voice AI for partner-led acquisition. We auto-dial inbound leads, speak 9 Indian languages natively, handle the core objections, and hand every call back to your RM team scored HOT / WARM / COLD.",
+    "PitchPerfect is the self-serve voice-agent platform for Indian startups, with a catalog of vertical skills — lead conversion, cold outbound, COD confirmation, clinic appointment. Hinglish-native, INR-priced.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -299,6 +299,63 @@ async def voices(_user: dict = Depends(require_user)) -> dict[str, Any]:
     }
 
 
+@app.get("/api/skills")
+async def list_skills(_user: dict = Depends(require_user)) -> dict[str, Any]:
+    """List stock skills available on this deployment.
+
+    Read-only catalog. Skill installations + tenant overrides land in a
+    later plan; today every org sees the same four stock skills.
+    """
+    from voice_agents import skills as skills_mod
+    items = []
+    for sid in skills_mod.list_stock_skills():
+        s = skills_mod.load_stock_skill(sid)
+        items.append({
+            "id": s.id,
+            "name": s.name,
+            "category": s.category,
+            "description": s.description,
+            "default_language": s.default_language,
+            "estimated_call_duration_seconds": s.estimated_call_duration_seconds,
+            "tools": s.tools,
+            "rubric_labels": s.rubric_labels,
+            "compliance_tags": s.compliance_tags,
+            "voice_defaults": s.voice_defaults,
+            "objection_count": len(s.objections),
+        })
+    return {"skills": items}
+
+
+@app.get("/api/skills/{skill_id}")
+async def get_skill_detail(
+    skill_id: str, _user: dict = Depends(require_user),
+) -> dict[str, Any]:
+    from voice_agents import skills as skills_mod
+    try:
+        s = skills_mod.load_stock_skill(skill_id)
+    except skills_mod.SkillNotFound:
+        raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+    return {
+        "id": s.id,
+        "name": s.name,
+        "category": s.category,
+        "description": s.description,
+        "default_language": s.default_language,
+        "default_voice_provider": s.default_voice_provider,
+        "default_voice_id": s.default_voice_id,
+        "estimated_call_duration_seconds": s.estimated_call_duration_seconds,
+        "tools": s.tools,
+        "tools_spec": s.tools_spec,
+        "rubric_labels": s.rubric_labels,
+        "rubric": s.rubric,
+        "compliance_tags": s.compliance_tags,
+        "voice_defaults": s.voice_defaults,
+        "objections": s.objections,
+        "prompt_template": s.prompt_template,
+        "greeting_template": s.greeting_template,
+    }
+
+
 @app.get("/api/leads")
 async def get_leads(status: str | None = None, limit: int = 200,
                     _user: dict = Depends(require_user)) -> list[dict[str, Any]]:

@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect } from "react";
 import {
   LayoutGrid, Users, Phone, BarChart2,
-  Wand2, Settings, ChevronLeft, LogOut, User, Send, Megaphone,
+  Wand2, Settings, ChevronLeft, LogOut, User, Send, Megaphone, Boxes,
 } from "lucide-react";
 import { clearSession, useAuth } from "@/lib/auth";
 
@@ -21,6 +21,7 @@ const WORKSPACE_NAV = [
 ];
 
 const TOOLS_NAV = [
+  { href: "/skills",   label: "Skills",   Icon: Boxes },
   { href: "/studio",   label: "Studio",   Icon: Wand2 },
   { href: "/settings", label: "Settings", Icon: Settings },
 ];

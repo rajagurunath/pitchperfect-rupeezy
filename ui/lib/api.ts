@@ -109,10 +109,42 @@ async function asJson<T>(p: Promise<Response>): Promise<T> {
   return r.json() as Promise<T>;
 }
 
+export type SkillSummary = {
+  id: string;
+  name: string;
+  category: string;
+  description: string;
+  default_language: string;
+  estimated_call_duration_seconds: number;
+  tools: string[];
+  rubric_labels: string[];
+  compliance_tags: string[];
+  voice_defaults: { agent_name?: string; voice_id?: string };
+  objection_count: number;
+};
+
+export type SkillDetail = SkillSummary & {
+  default_voice_provider: string;
+  default_voice_id: string;
+  tools_spec: Array<{ id: string; required_params: unknown; description?: string }>;
+  rubric: { description?: string; labels?: Record<string, { criteria?: string; action?: string }>; signals?: Record<string, string> };
+  objections: Array<{ label: string; trigger_phrases?: string[]; rebuttal: string }>;
+  prompt_template: string;
+  greeting_template: string;
+};
+
 export const api = {
   health: () => asJson<{ status: string; agent_name: string; agent_brand: string; model: string }>(
     fetch("/api/health"),
   ),
+  skills: () =>
+    asJson<{ skills: SkillSummary[] }>(
+      fetch("/api/skills", { cache: "no-store", headers: authHeaders() }),
+    ),
+  skillDetail: (id: string) =>
+    asJson<SkillDetail>(
+      fetch(`/api/skills/${id}`, { cache: "no-store", headers: authHeaders() }),
+    ),
   dashboard: () =>
     asJson<FunnelMetrics>(fetch("/api/dashboard", { cache: "no-store", headers: authHeaders() })),
   leads: (status?: string) =>
